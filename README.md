@@ -4,7 +4,7 @@ Claude Code skill for setting up Spark Bitcoin L2 wallet capabilities for AI age
 
 ## What is Spark?
 
-Spark is a Bitcoin Layer 2 built on threshold cryptography (FROST). It enables instant, zero-fee BTC and token transfers with full self-custody via a BIP39 mnemonic. Spark wallets also interoperate with the Lightning Network.
+Spark is a Bitcoin Layer 2 that lets you send and receive Bitcoin instantly with low fees. Spark-to-Spark transfers are free, and Lightning interop costs 0.15–0.25%. It is fully self-custodial — you hold your own keys via a BIP39 mnemonic — and fully interoperable with the Lightning Network. Spark currently has a small number of infrastructure providers (Signing Operators), so there is some risk of downtime, and it requires trusting that at least one operator behaves honestly during transfers.
 
 ## Capabilities
 
@@ -71,7 +71,7 @@ npm install @buildonspark/spark-sdk dotenv
 
 ## Security
 
-**Mnemonic = full wallet access.** Unlike NWC which supports permission scoping and spending limits, a Spark mnemonic can do everything: check balance, create invoices, and send payments. There is no read-only mode.
+**Mnemonic = full wallet access.** A Spark mnemonic can do everything: check balance, create invoices, and send payments. There is no permission scoping, no spending limits, no read-only mode.
 
 Recommendations:
 - Never expose the mnemonic in code, logs, or version control
