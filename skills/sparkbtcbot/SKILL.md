@@ -22,11 +22,11 @@ AI agents that transact need a monetary network that matches their nature: progr
 
 ## What is Spark
 
-Spark is a recently launched Bitcoin Layer 2 built on threshold cryptography (FROST signatures). Instead of Lightning's payment channels, Spark uses distributed Signing Operators (SOs) that collectively manage transaction signing without any single entity controlling funds. It is fully interoperable with the Lightning Network.
+Spark is a recently launched Bitcoin Layer 2 that lets you send and receive Bitcoin instantly with zero fees. Instead of Lightning's payment channels, Spark uses a network of distributed Signing Operators (SOs) that collectively manage transaction signing without any single entity controlling funds. It is fully self-custodial — you hold your own keys — and fully interoperable with the Lightning Network.
 
 ### How It Works
 1. Users hold their own keys (BIP39 mnemonic) — fully self-custodial
-2. Transactions are cooperatively signed by a threshold of Signing Operators using FROST
+2. Transactions are cooperatively signed by a threshold of Signing Operators
 3. Funds live in Bitcoin UTXOs organized in hierarchical trees
 4. Users can always exit to L1 unilaterally if operators go offline
 
@@ -64,7 +64,7 @@ Spark has **different trust assumptions than native Lightning**. Be upfront abou
 | Capacity | No channel limits | Channel-limited | Unlimited |
 | Channels | Not required | Required | N/A |
 | Offline receive | Supported | Requires infra | Yes |
-| Setup | Mnemonic only | Node or NWC + provider | Keys only |
+| Setup | Mnemonic only | Node or hosted provider | Keys only |
 
 ### Fee Structure
 
@@ -120,7 +120,7 @@ A single mnemonic provides identity, wallet, and payment capabilities. No separa
 npm install @buildonspark/spark-sdk@^0.5.8 dotenv
 ```
 
-Requires **v0.5.8 or newer**. One core dependency. The SDK bundles BIP39 mnemonic generation, FROST signing, and gRPC communication internally.
+Requires **v0.5.8 or newer**. One core dependency. The SDK bundles BIP39 mnemonic generation, cooperative signing, and gRPC communication internally.
 
 ## Setup Instructions
 
@@ -578,7 +578,7 @@ Error types:
 
 ### The Agent Has Full Wallet Access
 
-Any agent or process with the mnemonic has **unrestricted control** over the wallet — it can check balance, create invoices, and send every sat to any address. There is no permission scoping, no spending limits, no read-only mode. Unlike NWC (Nostr Wallet Connect), you cannot grant partial access.
+Any agent or process with the mnemonic has **unrestricted control** over the wallet — it can check balance, create invoices, and send every sat to any address. There is no permission scoping, no spending limits, no read-only mode.
 
 This means:
 - If the mnemonic leaks, all funds are at risk immediately
