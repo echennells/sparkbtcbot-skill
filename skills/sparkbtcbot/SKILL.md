@@ -22,7 +22,7 @@ AI agents that transact need a monetary network that matches their nature: progr
 
 ## What is Spark
 
-Spark is a recently launched Bitcoin Layer 2 that lets you send and receive Bitcoin instantly with zero fees. Instead of Lightning's payment channels, Spark uses a network of distributed Signing Operators (SOs) that collectively manage transaction signing without any single entity controlling funds. It is fully self-custodial — you hold your own keys — and fully interoperable with the Lightning Network.
+Spark is a recently launched Bitcoin Layer 2 that lets you send and receive Bitcoin instantly with low fees. Spark-to-Spark transfers are free, and Lightning interop costs 0.15–0.25%. Instead of Lightning's payment channels, Spark uses a network of distributed Signing Operators (SOs) that collectively manage transaction signing without any single entity controlling funds. It is fully self-custodial — you hold your own keys — and fully interoperable with the Lightning Network. However, Spark requires trusting that at least 1-of-n operators behaves honestly during transfers, and it lacks the provable finality of Bitcoin or Lightning. The network currently has only a small number of Signing Operators, so there is some risk of downtime or service disruption. See the Trust Model section below for full details.
 
 ### How It Works
 1. Users hold their own keys (BIP39 mnemonic) — fully self-custodial
