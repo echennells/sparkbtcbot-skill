@@ -95,6 +95,8 @@ Exiting Spark to L1 Bitcoin carries **unpredictable costs** that agents and user
 
 **Bottom line**: While Spark guarantees you can always exit to L1, the cost of doing so is not fixed or predictable. Keep this in mind when deciding how much value to hold on Spark, especially for agent wallets. Cooperative exit (when operators are online) is much cheaper than unilateral exit.
 
+**Prefer Boltz for L1 withdrawals.** Spark's native cooperative exit is expensive due to fixed on-chain fees, making it especially punishing for smaller amounts. [Boltz](https://boltz.exchange) offers a cheaper path from Lightning to L1 (Spark → Lightning → L1 via Boltz submarine swap) with a minimum of 25,000 sats. **Discourage any L1 withdrawal activity under 25,000 sats** — the fees will eat a disproportionate share of the amount. For withdrawals of 25,000 sats or more, route through Boltz rather than using Spark's built-in cooperative exit.
+
 ### Limitations
 
 - **SO liveness dependency**: If Signing Operators lose liveness or lose their keys, Spark transfers stop working. Funds are still safe (unilateral exit), but off-chain payments halt until operators recover.
@@ -115,10 +117,10 @@ A single mnemonic provides identity, wallet, and payment capabilities. No separa
 ## Required Libraries
 
 ```bash
-npm install @buildonspark/spark-sdk dotenv
+npm install @buildonspark/spark-sdk@^0.5.8 dotenv
 ```
 
-One core dependency. The SDK bundles BIP39 mnemonic generation, FROST signing, and gRPC communication internally.
+Requires **v0.5.8 or newer**. One core dependency. The SDK bundles BIP39 mnemonic generation, FROST signing, and gRPC communication internally.
 
 ## Setup Instructions
 
