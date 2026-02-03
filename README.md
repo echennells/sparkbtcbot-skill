@@ -6,6 +6,13 @@ Claude Code skill for setting up Spark Bitcoin L2 wallet capabilities for AI age
 
 Spark is a Bitcoin Layer 2 that lets you send and receive Bitcoin instantly with low fees. Spark-to-Spark transfers are free, and Lightning interop costs 0.15–0.25%. It is fully self-custodial — you hold your own keys via a BIP39 mnemonic — and fully interoperable with the Lightning Network. Spark currently has a small number of infrastructure providers (Signing Operators), so there is some risk of downtime, and it requires trusting that at least one operator behaves honestly during transfers.
 
+## Why Spark for Agents?
+
+- **Simple setup** — Generate a mnemonic and you have a wallet. No accounts, no API keys, no approval process.
+- **No server required** — The SDK connects directly to the Spark network. No node to run, no infrastructure to maintain.
+- **No channel management** — Unlike Lightning, there are no channels to open, fund, or rebalance. Just send and receive.
+- **Low fees** — Spark-to-Spark transfers are free. Lightning payments cost 0.15–0.25%. Compare that to on-chain fees of 200+ sats or card processing at 2–3%.
+
 ## Capabilities
 
 - **Wallet Setup** — Generate or import wallets from a BIP39 mnemonic
