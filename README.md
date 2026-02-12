@@ -23,6 +23,7 @@ Spark is a Bitcoin Layer 2 that lets you send and receive Bitcoin instantly with
 - **Token Operations** — Transfer BTKN/LRC20 tokens, batch transfers, token invoices
 - **Withdrawal** — Cooperative exit back to L1 Bitcoin with fee estimation
 - **Message Signing** — Prove identity via cryptographic signatures
+- **L402 Paywalls** — Pay-per-request APIs via Lightning. Preview costs, pay invoices, cache tokens.
 
 ## Installation
 
@@ -60,6 +61,7 @@ node examples/payment-flow.js
 | `balance-and-deposits.js` | Check balance (BTC + tokens), get deposit addresses |
 | `payment-flow.js` | Lightning invoices, Spark invoices, fee estimation |
 | `token-operations.js` | BTKN token balances, transfers, batch operations |
+| `l402-paywalls.js` | Access L402 pay-per-request APIs via Lightning |
 | `spark-agent.js` | Complete `SparkAgent` class with all capabilities |
 
 ## Environment Variables
@@ -73,7 +75,7 @@ node examples/payment-flow.js
 ## Dependencies
 
 ```bash
-npm install @buildonspark/spark-sdk dotenv
+npm install @buildonspark/spark-sdk dotenv light-bolt11-decoder
 ```
 
 ## Security

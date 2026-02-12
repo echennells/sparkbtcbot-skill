@@ -512,6 +512,79 @@ export class SparkAgent {
     );
   }
 
+  // L402 Methods
+  async fetchL402(url, options = {}) {
+    const { decode } = await import("light-bolt11-decoder");
+    const { method = "GET", headers = {}, body, maxFeeSats = 10 } = options;
+
+    // Make initial request
+    const initialResponse = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json", ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (initialResponse.status !== 402) {
+      const ct = initialResponse.headers.get("content-type") || "";
+      const data = ct.includes("json") ? await initialResponse.json() : await initialResponse.text();
+      return { paid: false, data };
+    }
+
+    // Parse L402 challenge
+    const challenge = await initialResponse.json();
+    const invoice = challenge.invoice || challenge.payment_request || challenge.pr;
+    const macaroon = challenge.macaroon || challenge.token;
+    if (!invoice || !macaroon) throw new Error("Invalid L402 challenge");
+
+    // Decode and pay
+    const decoded = decode(invoice);
+    const amountSection = decoded.sections.find((s) => s.name === "amount");
+    const amountSats = Math.ceil(Number(amountSection.value) / 1000);
+
+    const payResult = await this.#wallet.payLightningInvoice({ invoice, maxFeeSats });
+    let preimage = payResult.paymentPreimage;
+
+    // Poll if needed
+    if (!preimage && payResult.id) {
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const status = await this.#wallet.getLightningSendRequest(payResult.id);
+        if (status?.paymentPreimage) { preimage = status.paymentPreimage; break; }
+        if (status?.status === "LIGHTNING_PAYMENT_FAILED") throw new Error("Payment failed");
+      }
+    }
+    if (!preimage) throw new Error("No preimage received");
+
+    // Retry with auth
+    const finalResponse = await fetch(url, {
+      method,
+      headers: { "Authorization": `L402 ${macaroon}:${preimage}`, ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    const ct = finalResponse.headers.get("content-type") || "";
+    const data = ct.includes("json") ? await finalResponse.json() : await finalResponse.text();
+    return { paid: true, amountSats, preimage, data };
+  }
+
+  async previewL402(url) {
+    const response = await fetch(url);
+    if (response.status !== 402) return { requiresPayment: false };
+
+    const { decode } = await import("light-bolt11-decoder");
+    const challenge = await response.json();
+    const invoice = challenge.invoice || challenge.payment_request;
+    const decoded = decode(invoice);
+    const amountSection = decoded.sections.find((s) => s.name === "amount");
+
+    return {
+      requiresPayment: true,
+      amountSats: Math.ceil(Number(amountSection.value) / 1000),
+      invoice,
+      macaroon: challenge.macaroon,
+    };
+  }
+
   onTransferReceived(callback) {
     this.#wallet.on("transfer:claimed", callback);
   }
@@ -610,9 +683,232 @@ This means:
 5. **Use REGTEST** for development and testing, MAINNET only for production
 6. **Implement application-level spending controls** — cap per-transaction and daily amounts in your agent logic since the SDK won't do it for you
 
+## L402 Protocol (Lightning Paywalls)
+
+L402 (formerly LSAT) is a protocol for monetizing APIs and content using Lightning payments. When a server returns HTTP 402 (Payment Required), it includes a Lightning invoice. Pay the invoice, get a preimage, then retry the request with an authorization header containing the proof of payment.
+
+### How L402 Works
+
+1. **Request** → Client fetches protected URL
+2. **402 Response** → Server returns `{invoice, macaroon}`
+3. **Pay Invoice** → Client pays Lightning invoice, receives preimage
+4. **Retry with Auth** → Client retries with `Authorization: L402 <macaroon>:<preimage>`
+5. **200 Response** → Server returns protected content
+
+### L402 Implementation
+
+```javascript
+import { decode } from "light-bolt11-decoder";
+
+async function fetchWithL402(wallet, url, options = {}) {
+  const { method = "GET", headers = {}, body, maxFeeSats = 10 } = options;
+
+  // Step 1: Make initial request
+  const initialResponse = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json", ...headers },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  // If not 402, return response directly
+  if (initialResponse.status !== 402) {
+    const contentType = initialResponse.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      return { paid: false, data: await initialResponse.json() };
+    }
+    return { paid: false, data: await initialResponse.text() };
+  }
+
+  // Step 2: Parse 402 challenge
+  const challenge = await initialResponse.json();
+  const invoice = challenge.invoice || challenge.payment_request || challenge.pr;
+  const macaroon = challenge.macaroon || challenge.token;
+
+  if (!invoice || !macaroon) {
+    throw new Error("Invalid L402 response: missing invoice or macaroon");
+  }
+
+  // Step 3: Decode invoice to get amount
+  const decoded = decode(invoice);
+  const amountSection = decoded.sections.find((s) => s.name === "amount");
+  if (!amountSection?.value) {
+    throw new Error("L402 invoice has no amount");
+  }
+  const amountSats = Math.ceil(Number(amountSection.value) / 1000);
+
+  // Step 4: Pay the invoice
+  const payResult = await wallet.payLightningInvoice({
+    invoice,
+    maxFeeSats,
+  });
+
+  // Get preimage (may need to poll if payment is async)
+  let preimage = payResult.paymentPreimage;
+  if (!preimage && payResult.status === "LIGHTNING_PAYMENT_INITIATED") {
+    // Poll for completion
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      const status = await wallet.getLightningSendRequest(payResult.id);
+      if (status?.paymentPreimage) {
+        preimage = status.paymentPreimage;
+        break;
+      }
+      if (status?.status === "LIGHTNING_PAYMENT_FAILED") {
+        throw new Error("L402 payment failed");
+      }
+    }
+  }
+
+  if (!preimage) {
+    throw new Error("L402 payment succeeded but no preimage available");
+  }
+
+  // Step 5: Retry with L402 authorization
+  const finalResponse = await fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `L402 ${macaroon}:${preimage}`,
+      ...headers,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const contentType = finalResponse.headers.get("content-type") || "";
+  let data;
+  if (contentType.includes("application/json")) {
+    data = await finalResponse.json();
+  } else {
+    data = await finalResponse.text();
+  }
+
+  return {
+    paid: true,
+    amountSats,
+    preimage,
+    data,
+  };
+}
+```
+
+### Preview L402 Cost (Without Paying)
+
+```javascript
+async function previewL402(url) {
+  const response = await fetch(url);
+
+  if (response.status !== 402) {
+    return { requiresPayment: false };
+  }
+
+  const challenge = await response.json();
+  const invoice = challenge.invoice || challenge.payment_request;
+
+  const decoded = decode(invoice);
+  const amountSection = decoded.sections.find((s) => s.name === "amount");
+  const amountSats = Math.ceil(Number(amountSection.value) / 1000);
+
+  return {
+    requiresPayment: true,
+    amountSats,
+    invoice,
+    macaroon: challenge.macaroon,
+  };
+}
+```
+
+### Add to SparkAgent Class
+
+```javascript
+// Add to the SparkAgent class
+async fetchL402(url, options = {}) {
+  return await fetchWithL402(this.#wallet, url, options);
+}
+
+async previewL402(url) {
+  return await previewL402(url);
+}
+```
+
+### Usage Example
+
+```javascript
+const { agent } = await SparkAgent.create(process.env.SPARK_MNEMONIC);
+
+// Check cost first
+const preview = await agent.previewL402("https://api.example.com/paid-endpoint");
+console.log("Cost:", preview.amountSats, "sats");
+
+// Pay and fetch
+const result = await agent.fetchL402("https://api.example.com/paid-endpoint", {
+  maxFeeSats: 10,
+});
+console.log("Paid:", result.paid, "Data:", result.data);
+
+agent.cleanup();
+```
+
+### Required Dependency
+
+```bash
+npm install light-bolt11-decoder
+```
+
+### L402 Providers
+
+| Provider | Description | URL |
+|----------|-------------|-----|
+| Lightning Faucet | Test L402 endpoint (21 sat jokes) | https://lightningfaucet.com/api/l402/joke |
+| Sulu | AI image generation | https://rnd.ln.sulu.sh (may require API key) |
+| Various APIs | Growing ecosystem | https://github.com/lnurl/awesome-lnurl#l402 |
+
+### Token Caching
+
+L402 tokens (macaroon + preimage) can often be reused for multiple requests to the same domain. Cache tokens by domain and try the cached token first:
+
+```javascript
+const tokenCache = new Map();
+
+async function fetchWithL402Cached(wallet, url, options = {}) {
+  const domain = new URL(url).host;
+  const cached = tokenCache.get(domain);
+
+  if (cached) {
+    // Try cached token first
+    const response = await fetch(url, {
+      method: options.method || "GET",
+      headers: {
+        "Authorization": `L402 ${cached.macaroon}:${cached.preimage}`,
+        ...options.headers,
+      },
+    });
+
+    if (response.status !== 402 && response.status !== 401) {
+      return { paid: false, cached: true, data: await response.json() };
+    }
+    // Token expired, delete and pay again
+    tokenCache.delete(domain);
+  }
+
+  // Pay for new token
+  const result = await fetchWithL402(wallet, url, options);
+
+  // Cache the token
+  if (result.paid) {
+    tokenCache.set(domain, {
+      macaroon: result.macaroon,
+      preimage: result.preimage,
+    });
+  }
+
+  return result;
+}
+```
+
 ## Resources
 
 - Spark Docs: https://docs.spark.money
 - Spark SDK (npm): https://www.npmjs.com/package/@buildonspark/spark-sdk
 - Sparkscan Explorer: https://sparkscan.io
 - Spark CLI: https://docs.spark.money/tools/cli
+- L402 Spec: https://docs.lightning.engineering/the-lightning-network/l402
