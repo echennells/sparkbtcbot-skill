@@ -182,7 +182,9 @@ async function main() {
   );
 
   if (mnemonic) {
-    console.log("Generated mnemonic (save securely):", mnemonic, "\n");
+    // WARNING: Only for initial setup. Save securely and clear terminal history.
+    console.log("Generated mnemonic (SAVE SECURELY, then clear terminal):");
+    console.log(mnemonic, "\n");
   }
 
   const identity = await agent.getIdentity();

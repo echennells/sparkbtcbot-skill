@@ -2,6 +2,16 @@
 name: sparkbtcbot
 description: Set up Spark Bitcoin L2 wallet capabilities for AI agents. Initialize wallets from mnemonic, transfer sats and tokens, create/pay Lightning invoices, manage deposits and withdrawals. Use when user mentions "Spark wallet," "Spark Bitcoin," "BTKN tokens," "Spark L2," "Spark SDK," "Spark payment," "Spark transfer," "Spark invoice," or wants Bitcoin L2 capabilities for an agent.
 argument-hint: "[Optional: specify what to set up - wallet, payments, tokens, lightning, or full]"
+requires:
+  env:
+    - name: SPARK_MNEMONIC
+      description: 12 or 24 word BIP39 mnemonic for the Spark wallet. This is a secret key that controls all funds — never commit to git or expose in logs.
+      sensitive: true
+    - name: SPARK_NETWORK
+      description: Network to connect to (MAINNET or REGTEST)
+      default: MAINNET
+model-invocation: autonomous
+model-invocation-reason: This skill enables agents to autonomously send and receive Bitcoin payments. Autonomous invocation is intentional — agents need to pay invoices and respond to incoming transfers without human approval for each transaction. Use spending limits and the proxy for production environments where you need guardrails.
 ---
 
 # Spark Bitcoin L2 for AI Agents
@@ -9,6 +19,21 @@ argument-hint: "[Optional: specify what to set up - wallet, payments, tokens, li
 You are an expert in setting up Spark Bitcoin L2 wallet capabilities for AI agents using the `@buildonspark/spark-sdk`.
 
 Spark is a Bitcoin Layer 2 that enables instant, zero-fee self-custodial transfers of BTC and tokens, with native Lightning Network interoperability. Spark-to-Spark transfers cost nothing — compared to Lightning routing fees or on-chain transaction fees of 200+ sats. Even cross-network payments (Lightning interop) are cheaper than most alternatives at 0.15-0.25%. A single BIP39 mnemonic gives an agent identity, wallet access, and payment capabilities.
+
+## For Production Use
+
+**This skill gives the agent full custody of the wallet.** The agent holds the mnemonic and can send all funds without restriction. This is appropriate for:
+- Development and testing (use REGTEST with no real funds)
+- Trusted agents you fully control
+- Small operational balances you're willing to lose
+
+**For production with real funds, use [sparkbtcbot-proxy](https://github.com/echennells/sparkbtcbot-proxy) instead.** The proxy keeps the mnemonic on your server and gives agents scoped access via bearer tokens:
+- **Spending limits** — per-transaction and daily caps
+- **Role-based access** — read-only, invoice-only, or full access
+- **Revocable tokens** — cut off a compromised agent without moving funds
+- **Audit logs** — track all wallet activity
+
+The proxy wraps the same Spark SDK behind authenticated REST endpoints. Agents get HTTP access instead of direct SDK access.
 
 ## Why Bitcoin for Agents
 
@@ -133,7 +158,7 @@ import { SparkWallet } from "@buildonspark/spark-sdk";
 const { wallet, mnemonic } = await SparkWallet.initialize({
   options: { network: "MAINNET" }
 });
-console.log("Mnemonic (save securely):", mnemonic);
+// Save mnemonic securely — NEVER log it in production
 
 // Option B: Import existing wallet from mnemonic
 const { wallet } = await SparkWallet.initialize({
@@ -151,6 +176,12 @@ Add to your project's `.env`:
 SPARK_MNEMONIC=word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12
 SPARK_NETWORK=MAINNET
 ```
+
+**Security warnings:**
+- **Never log the mnemonic** — not even during development. If you must display it once for backup, delete that code immediately after.
+- **Never commit `.env`** — add it to `.gitignore` before your first commit.
+- **Use a secrets manager in production** — environment variables in `.env` files are plaintext. For production deployments, use your platform's secrets management (Vercel encrypted env vars, AWS Secrets Manager, etc.).
+- **Test with REGTEST first** — use a throwaway mnemonic on REGTEST before touching real funds.
 
 ### Step 3: Verify Wallet
 

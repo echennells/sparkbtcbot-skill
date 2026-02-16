@@ -32,11 +32,15 @@ async function main() {
   console.log("Identity Key: ", identityKey);
 
   if (mnemonic) {
-    console.log("\n=== SAVE THIS MNEMONIC SECURELY ===");
+    // WARNING: This prints the mnemonic for initial backup only.
+    // After saving it securely, delete this output from your terminal history.
+    // NEVER log mnemonics in production code.
+    console.log("\n=== SAVE THIS MNEMONIC SECURELY (then clear terminal) ===");
     console.log(mnemonic);
-    console.log("\n=== Add to .env ===");
+    console.log("\n=== Add to .env (never commit this file) ===");
     console.log(`SPARK_MNEMONIC=${mnemonic}`);
     console.log(`SPARK_NETWORK=${network}`);
+    console.log("\n=== CLEAR YOUR TERMINAL HISTORY AFTER SAVING ===");
   }
 
   wallet.cleanupConnections();
