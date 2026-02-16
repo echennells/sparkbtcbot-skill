@@ -1,7 +1,7 @@
 ---
 name: sparkbtcbot
-description: Set up Spark Bitcoin L2 wallet capabilities for AI agents. Initialize wallets from mnemonic, transfer sats and tokens, create/pay Lightning invoices, manage deposits and withdrawals. Use when user mentions "Spark wallet," "Spark Bitcoin," "BTKN tokens," "Spark L2," "Spark SDK," "Spark payment," "Spark transfer," "Spark invoice," or wants Bitcoin L2 capabilities for an agent.
-argument-hint: "[Optional: specify what to set up - wallet, payments, tokens, lightning, or full]"
+description: Set up Spark Bitcoin L2 wallet capabilities for AI agents. Initialize wallets from mnemonic, transfer sats and tokens, create/pay Lightning invoices, pay L402 paywalls, manage deposits and withdrawals. Use when user mentions "Spark wallet," "Spark Bitcoin," "BTKN tokens," "Spark L2," "Spark SDK," "Spark payment," "Spark transfer," "Spark invoice," "L402," "Lightning paywall," or wants Bitcoin L2 capabilities for an agent.
+argument-hint: "[Optional: specify what to set up - wallet, payments, tokens, lightning, l402, or full]"
 requires:
   env:
     - name: SPARK_MNEMONIC
