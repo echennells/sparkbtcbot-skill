@@ -29,7 +29,18 @@ export class SparkAgent {
 
   async getBalance() {
     const { balance, tokenBalances } = await this.#wallet.getBalance();
-    return { sats: balance, tokens: tokenBalances };
+    const tokens = Object.fromEntries(
+      Array.from(tokenBalances.entries()).map(([id, info]) => [
+        id,
+        {
+          balance: info.balance.toString(),
+          name: info.tokenMetadata.tokenName,
+          ticker: info.tokenMetadata.tokenTicker,
+          decimals: info.tokenMetadata.decimals,
+        },
+      ])
+    );
+    return { sats: balance.toString(), tokens };
   }
 
   // --- Deposits ---
