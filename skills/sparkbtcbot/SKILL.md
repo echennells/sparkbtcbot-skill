@@ -732,10 +732,12 @@ L402 (formerly LSAT) is a protocol for monetizing APIs and content using Lightni
 ### How L402 Works
 
 1. **Request** → Client fetches protected URL
-2. **402 Response** → Server returns `{invoice, macaroon}`
+2. **402 Response** → Server returns invoice + macaroon (see challenge formats below)
 3. **Pay Invoice** → Client pays Lightning invoice, receives preimage
 4. **Retry with Auth** → Client retries with `Authorization: L402 <macaroon>:<preimage>`
 5. **200 Response** → Server returns protected content
+
+**Challenge formats:** The spec-compliant way is via the `WWW-Authenticate` header (e.g. `WWW-Authenticate: L402 macaroon="...", invoice="..."`), used by aperture-based servers. Some services instead return the challenge as a JSON body (`{invoice, macaroon}`). Agents should check the header first, then fall back to the body.
 
 ### L402 Implementation
 
@@ -761,10 +763,19 @@ async function fetchWithL402(wallet, url, options = {}) {
     return { paid: false, data: await initialResponse.text() };
   }
 
-  // Step 2: Parse 402 challenge
-  const challenge = await initialResponse.json();
-  const invoice = challenge.invoice || challenge.payment_request || challenge.pr;
-  const macaroon = challenge.macaroon || challenge.token;
+  // Step 2: Parse 402 challenge (header first, then body)
+  let invoice, macaroon;
+  const wwwAuth = initialResponse.headers.get("www-authenticate") || "";
+  const l402Header = wwwAuth.split('L402 macaroon="')[1] || wwwAuth.split('LSAT macaroon="')[1];
+  if (l402Header) {
+    macaroon = l402Header.split('"')[0];
+    invoice = l402Header.split('invoice="')[1]?.split('"')[0];
+  }
+  if (!invoice || !macaroon) {
+    const challenge = await initialResponse.json();
+    invoice = invoice || challenge.invoice || challenge.payment_request || challenge.pr;
+    macaroon = macaroon || challenge.macaroon || challenge.token;
+  }
 
   if (!invoice || !macaroon) {
     throw new Error("Invalid L402 response: missing invoice or macaroon");
@@ -906,7 +917,7 @@ npm install light-bolt11-decoder
 
 ### Token Caching
 
-L402 tokens (macaroon + preimage) can often be reused for multiple requests to the same domain. Cache tokens by domain and try the cached token first:
+**Important:** L402 tokens (macaroon + preimage) can typically be reused for multiple requests to the same domain until they expire. Without caching, every request triggers a new 402 challenge and a new payment — the server won't tell you that you already paid. Always cache tokens by domain and try the cached token first:
 
 ```javascript
 const tokenCache = new Map();
