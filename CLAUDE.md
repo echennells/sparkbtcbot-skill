@@ -23,13 +23,15 @@ Teaches Claude Code how to give AI agents Bitcoin capabilities using the Spark L
 ```
 skills/
   sparkbtcbot/
-    SKILL.md              # Main knowledge base
-examples/
-  wallet-setup.js         # Generate/import wallet
-  balance-and-deposits.js # Balance + deposit addresses
-  payment-flow.js         # Lightning + Spark payments
-  token-operations.js     # BTKN token operations
-  spark-agent.js          # Complete SparkAgent class
+    SKILL.md              # Always-loaded skill body (security, setup, navigator)
+    references/           # Detail loaded on demand (SDK API, agent class, L402, etc.)
+    scripts/              # Runnable example scripts
+      wallet-setup.js
+      balance-and-deposits.js
+      payment-flow.js
+      token-operations.js
+      spark-agent.js
+      l402-paywalls.js
 .env.example              # Environment variable template
 ```
 

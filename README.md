@@ -46,11 +46,11 @@ npm install
 cp .env.example .env
 
 # Generate a new wallet
-node examples/wallet-setup.js
+node skills/sparkbtcbot/scripts/wallet-setup.js
 
 # Add the generated mnemonic to .env, then:
-node examples/balance-and-deposits.js
-node examples/payment-flow.js
+node skills/sparkbtcbot/scripts/balance-and-deposits.js
+node skills/sparkbtcbot/scripts/payment-flow.js
 ```
 
 ## Example Scripts
