@@ -1,0 +1,76 @@
+{
+  "skill_name": "sparkbtcbot",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Show me how to set up a Spark wallet from an existing 12-word mnemonic stored in the SPARK_MNEMONIC env var, then print the wallet's Spark address and available sats balance. Use REGTEST.",
+      "expected_output": "JavaScript code that imports SparkWallet, initializes from env, calls getSparkAddress() and getBalance(), and reads satsBalance.available (not the deprecated top-level balance).",
+      "files": [],
+      "expectations": [
+        "The code imports SparkWallet from @buildonspark/spark-sdk",
+        "The code calls SparkWallet.initialize with mnemonicOrSeed and options.network set to REGTEST",
+        "The code reads the wallet's address via getSparkAddress",
+        "The code reads sats balance via satsBalance.available, not via the deprecated top-level balance field",
+        "The code calls cleanupConnections when done"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I have a wallet that holds some BTKN tokens. Print every token I hold along with its ticker, name, and how much I own.",
+      "expected_output": "Code that iterates wallet.getBalance().tokenBalances Map and prints metadata + ownedBalance for each entry.",
+      "files": [],
+      "expectations": [
+        "The code calls wallet.getBalance() and destructures tokenBalances",
+        "The code iterates tokenBalances as a Map (for...of with destructured entries, or .entries())",
+        "The code reads ownedBalance on each token balance entry, not a 'balance' field",
+        "The code reads tokenMetadata.tokenTicker and tokenMetadata.tokenName"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Sign the message 'agent-007 says hi' with the Spark wallet's identity key and then verify that signature.",
+      "expected_output": "Code that calls signMessageWithIdentityKey and validateMessageWithIdentityKey with correct argument types.",
+      "files": [],
+      "expectations": [
+        "The code passes the message as a string (not a Uint8Array) to signMessageWithIdentityKey",
+        "The code calls validateMessageWithIdentityKey with exactly two arguments (message string and signature) — it does NOT pass a third public-key argument"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Pay an L402 paywall at https://lightningfaucet.com/api/l402/joke from my Spark wallet, with a max fee of 10 sats. Cache the resulting token by domain so subsequent calls reuse it.",
+      "expected_output": "Code that handles a 402 response, decodes the BOLT11 invoice, pays via wallet.payLightningInvoice, retries with the L402 Authorization header, and caches macaroon+preimage by domain.",
+      "files": [],
+      "expectations": [
+        "The code makes an initial fetch and inspects response.status for 402",
+        "The code parses the L402 challenge from the WWW-Authenticate header AND/OR the JSON body",
+        "The code decodes the invoice using light-bolt11-decoder to compute amountSats",
+        "The code calls wallet.payLightningInvoice with maxFeeSats: 10",
+        "The code retries the request with an Authorization header in the form 'L402 <macaroon>:<preimage>'",
+        "The code caches the (macaroon, preimage) pair keyed by URL host/domain for reuse"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Send 100 sats from one Spark wallet to another, given the recipient's sparkrt1p address. Show how to wait for the receiver to actually see the balance update.",
+      "expected_output": "Code that calls wallet.transfer({ receiverSparkAddress, amountSats }) and either polls receiver.getBalance() or listens for the transfer:claimed event.",
+      "files": [],
+      "expectations": [
+        "The code calls wallet.transfer with receiverSparkAddress and amountSats",
+        "The code either subscribes to wallet.on('transfer:claimed', ...) or polls receiver.getBalance() to confirm receipt"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Create a new BTKN token called 'AgentPoints' with ticker 'AGNTP' on REGTEST and mint 10,000 units to the issuer wallet.",
+      "expected_output": "Code that uses IssuerSparkWallet from @buildonspark/issuer-sdk, calls createToken with the right shape, then mintTokens.",
+      "files": [],
+      "expectations": [
+        "The code imports IssuerSparkWallet from @buildonspark/issuer-sdk (NOT from @buildonspark/spark-sdk)",
+        "The code calls IssuerSparkWallet.initialize with options.network set to REGTEST",
+        "The code calls wallet.createToken with tokenName, tokenTicker, maxSupply (BigInt), decimals, and isFreezeable",
+        "The code calls wallet.mintTokens with a BigInt amount"
+      ]
+    }
+  ]
+}

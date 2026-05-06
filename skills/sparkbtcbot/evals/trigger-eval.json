@@ -1,0 +1,82 @@
+[
+  {
+    "query": "I'm building a research assistant agent in node and I want it to be able to pay a few sats per query for paid APIs without me having to approve each call. its using anthropic claude on the backend",
+    "should_trigger": true
+  },
+  {
+    "query": "ok so my discord bot is going to let users tip each other in btc, and I need it to handle balances and transfers between users without paying lightning routing fees on every microtransfer. give me a 12 word mnemonic-based setup",
+    "should_trigger": true
+  },
+  {
+    "query": "how do i give my llm agent the ability to earn sats by doing research tasks and then save them up over time. it should be self-custodial",
+    "should_trigger": true
+  },
+  {
+    "query": "my chatbot needs to pay an L402 paywall at sulu.sh for image generation, what library do i use",
+    "should_trigger": true
+  },
+  {
+    "query": "build me an autonomous tipping bot for nostr that can send and receive bitcoin instantly with zero fees between users",
+    "should_trigger": true
+  },
+  {
+    "query": "I need to do BTKN token transfers from a Node.js script using a BIP39 seed phrase, the recipients are sparkrt1p addresses",
+    "should_trigger": true
+  },
+  {
+    "query": "how do I wire up a non-custodial bitcoin wallet for an AI agent so it can both receive lightning invoices from users and pay them out automatically",
+    "should_trigger": true
+  },
+  {
+    "query": "agent wallet for a customer service bot that issues refunds in sats. need read-only mode AND full send mode",
+    "should_trigger": true
+  },
+  {
+    "query": "set up Spark Bitcoin layer 2 wallet for my MCP server",
+    "should_trigger": true
+  },
+  {
+    "query": "I want my AI agent to handle btc payments without running a lightning node",
+    "should_trigger": true
+  },
+  {
+    "query": "help me write an LDK-based lightning node in rust for my own routing service",
+    "should_trigger": false
+  },
+  {
+    "query": "I'm using @lightsparkdev/wallet-sdk to receive payments — how do I subscribe to invoice paid events",
+    "should_trigger": false
+  },
+  {
+    "query": "set up a non-custodial bitcoin wallet using BDK with descriptor wallets",
+    "should_trigger": false
+  },
+  {
+    "query": "build an LNbits lightning paywall plugin so my podcast can charge per episode",
+    "should_trigger": false
+  },
+  {
+    "query": "I'm using the Tether WDK wallet-spark library for an account abstraction wallet, can you help me with the integration",
+    "should_trigger": false
+  },
+  {
+    "query": "configure a lightning node to accept payments via LND gRPC and macaroon auth",
+    "should_trigger": false
+  },
+  {
+    "query": "explain how Bitcoin's UTXO model works to a junior engineer joining my team",
+    "should_trigger": false
+  },
+  {
+    "query": "I want to use the Cashu protocol for ecash tokens in my chat app — what mint should I federate with",
+    "should_trigger": false
+  },
+  {
+    "query": "set up a bitcoin core full node on my home server with pruned mode and -txindex",
+    "should_trigger": false
+  },
+  {
+    "query": "help me write a Taproot script for a 2-of-3 multisig with a timelock escape hatch",
+    "should_trigger": false
+  }
+]
