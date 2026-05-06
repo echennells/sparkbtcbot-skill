@@ -24,7 +24,7 @@ async function main() {
       const meta = info.tokenMetadata;
       console.log(`Token: ${meta.tokenName} (${meta.tokenTicker})`);
       console.log(`  Identifier: ${id}`);
-      console.log(`  Balance:    ${info.balance.toString()}`);
+      console.log(`  Balance:    ${info.ownedBalance.toString()}`);
       console.log(`  Decimals:   ${meta.decimals}`);
       console.log(`  Max Supply: ${meta.maxSupply.toString()}`);
       console.log();

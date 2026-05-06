@@ -142,10 +142,10 @@ A single mnemonic provides identity, wallet, and payment capabilities. No separa
 ## Required Libraries
 
 ```bash
-npm install @buildonspark/spark-sdk@^0.5.8 dotenv
+npm install @buildonspark/spark-sdk@^0.7.17 dotenv
 ```
 
-Requires **v0.5.8 or newer**. One core dependency. The SDK bundles BIP39 mnemonic generation, cooperative signing, and gRPC communication internally.
+Requires **v0.7.17 or newer**. One core dependency. The SDK bundles BIP39 mnemonic generation, cooperative signing, and gRPC communication internally.
 
 ## Setup Instructions
 
@@ -209,7 +209,7 @@ const { balance, tokenBalances } = await wallet.getBalance();
 console.log("BTC:", balance.toString(), "sats");
 
 for (const [id, token] of tokenBalances) {
-  console.log(`${token.tokenMetadata.tokenTicker}: ${token.balance.toString()}`);
+  console.log(`${token.tokenMetadata.tokenTicker}: ${token.ownedBalance.toString()}`);
 }
 ```
 
@@ -347,7 +347,7 @@ Spark natively supports tokens via the BTKN (LRC20) standard. Tokens can represe
 const { tokenBalances } = await wallet.getBalance();
 for (const [id, info] of tokenBalances) {
   const meta = info.tokenMetadata;
-  console.log(`${meta.tokenName} (${meta.tokenTicker}): ${info.balance.toString()}`);
+  console.log(`${meta.tokenName} (${meta.tokenTicker}): ${info.ownedBalance.toString()}`);
   console.log(`  Decimals: ${meta.decimals}, Max supply: ${meta.maxSupply.toString()}`);
 }
 ```
@@ -412,19 +412,32 @@ Spark wallets can sign and verify messages using their identity key. Useful for 
 ### Sign a Message
 
 ```javascript
-const message = new TextEncoder().encode("I am agent-007");
-const signature = await wallet.signMessageWithIdentityKey(message);
+const signature = await wallet.signMessageWithIdentityKey("I am agent-007");
+// Optional: pass `true` as a 2nd arg for compact (64-byte) encoding instead of DER.
 ```
 
 ### Verify a Signature
 
+`validateMessageWithIdentityKey` validates against the *calling wallet's own* identity key — there is no parameter for verifying against an external public key.
+
 ```javascript
-const isValid = await wallet.validateMessageWithIdentityKey(
-  new TextEncoder().encode("I am agent-007"),
-  signature,
-  publicKey,
-);
+// Self-verification: did THIS wallet sign this message?
+const isValid = await wallet.validateMessageWithIdentityKey("I am agent-007", signature);
 console.log("Valid:", isValid);
+```
+
+To verify a signature from a different party against their public key, use `secp256k1` directly:
+
+```javascript
+import { secp256k1 } from "@noble/curves/secp256k1";
+import { sha256 } from "@noble/hashes/sha2";
+import { hexToBytes } from "@noble/curves/utils";
+
+const valid = secp256k1.verify(
+  hexToBytes(signature),                        // their signature
+  sha256(new TextEncoder().encode("I am agent-007")),
+  hexToBytes(theirPublicKeyHex),                // their identity public key
+);
 ```
 
 ## Event Listeners
@@ -480,7 +493,7 @@ export class SparkAgent {
       Array.from(tokenBalances.entries()).map(([id, info]) => [
         id,
         {
-          balance: info.balance.toString(),
+          balance: info.ownedBalance.toString(),
           name: info.tokenMetadata.tokenName,
           ticker: info.tokenMetadata.tokenTicker,
           decimals: info.tokenMetadata.decimals,
@@ -543,17 +556,13 @@ export class SparkAgent {
   }
 
   async signMessage(text) {
-    const message = new TextEncoder().encode(text);
-    return await this.#wallet.signMessageWithIdentityKey(message);
+    return await this.#wallet.signMessageWithIdentityKey(text);
   }
 
-  async verifyMessage(text, signature, publicKey) {
-    const message = new TextEncoder().encode(text);
-    return await this.#wallet.validateMessageWithIdentityKey(
-      message,
-      signature,
-      publicKey,
-    );
+  // Validates a signature against THIS agent's own identity key. For
+  // verifying a signature from another party, use secp256k1.verify directly.
+  async verifyOwnSignature(text, signature) {
+    return await this.#wallet.validateMessageWithIdentityKey(text, signature);
   }
 
   // L402 Methods

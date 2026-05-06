@@ -24,7 +24,7 @@ async function main() {
     console.log("\n=== Tokens ===");
     for (const [id, info] of tokenBalances) {
       const meta = info.tokenMetadata;
-      console.log(`${meta.tokenName} (${meta.tokenTicker}): ${info.balance.toString()}`);
+      console.log(`${meta.tokenName} (${meta.tokenTicker}): ${info.ownedBalance.toString()}`);
     }
   } else {
     console.log("\nNo token balances.");

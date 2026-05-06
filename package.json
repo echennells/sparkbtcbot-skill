@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Claude Code skill for setting up Spark Bitcoin L2 wallet capabilities for AI agents",
   "dependencies": {
-    "@buildonspark/spark-sdk": "^0.5.8",
+    "@buildonspark/issuer-sdk": "^0.1.35",
+    "@buildonspark/spark-sdk": "^0.7.17",
     "dotenv": "^16.4.7",
     "light-bolt11-decoder": "^3.2.0"
   },
@@ -14,6 +15,14 @@
     "example:payments": "node examples/payment-flow.js",
     "example:tokens": "node examples/token-operations.js",
     "example:agent": "node examples/spark-agent.js",
-    "example:l402": "node examples/l402-paywalls.js"
+    "example:l402": "node examples/l402-paywalls.js",
+    "test": "vitest run tests/unit",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration --exclude tests/integration/funded",
+    "test:funded": "vitest run tests/integration/funded",
+    "test:all": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "4.1.5"
   }
 }

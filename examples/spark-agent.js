@@ -33,7 +33,7 @@ export class SparkAgent {
       Array.from(tokenBalances.entries()).map(([id, info]) => [
         id,
         {
-          balance: info.balance.toString(),
+          balance: info.ownedBalance.toString(),
           name: info.tokenMetadata.tokenName,
           ticker: info.tokenMetadata.tokenTicker,
           decimals: info.tokenMetadata.decimals,
@@ -148,17 +148,14 @@ export class SparkAgent {
   // --- Message Signing ---
 
   async signMessage(text) {
-    const message = new TextEncoder().encode(text);
-    return await this.#wallet.signMessageWithIdentityKey(message);
+    return await this.#wallet.signMessageWithIdentityKey(text);
   }
 
-  async verifyMessage(text, signature, publicKey) {
-    const message = new TextEncoder().encode(text);
-    return await this.#wallet.validateMessageWithIdentityKey(
-      message,
-      signature,
-      publicKey,
-    );
+  // Validates that `text`+`signature` was signed by THIS agent's own identity
+  // key. To verify a signature from another party, use secp256k1.verify from
+  // @noble/curves directly with their public key.
+  async verifyOwnSignature(text, signature) {
+    return await this.#wallet.validateMessageWithIdentityKey(text, signature);
   }
 
   // --- Events ---
