@@ -35,6 +35,17 @@ Spark is a Bitcoin Layer 2 that enables instant, zero-fee self-custodial transfe
 
 The proxy wraps the same Spark SDK behind authenticated REST endpoints. Agents get HTTP access instead of direct SDK access.
 
+## Rules for Claude when operating this skill
+
+These rules apply whenever this skill is active. They are not optional — the mnemonic in `SPARK_MNEMONIC` controls all funds in the wallet, and a leak into the conversation transcript or shell history is functionally identical to a leak from disk.
+
+- **DO NOT print the mnemonic to chat, logs, or any other output.** Not to confirm it's set, not to verify the user pasted it correctly. To verify the wallet loads, call `wallet.getSparkAddress()` and compare *addresses*, never seed words.
+- **DO NOT read `.env` back into the conversation.** Load it programmatically with `import "dotenv/config"`. Never `cat .env`, `head .env`, `Read` the file, or otherwise put its contents in chat. Same rule for `.env.local`, `.envrc`, and any secrets-bearing dotfile.
+- **DO NOT run `env`, `printenv`, `set`, or `echo $SPARK_MNEMONIC`** in the conversation — these dump the mnemonic into the transcript.
+- **DO NOT include the mnemonic in commit messages, code comments, test fixtures, README examples, or git history.** REGTEST throwaway mnemonics are the only exception; when logging one, prefix it with "REGTEST throwaway" inline so a future reader doesn't mistake it for a mainnet seed.
+- **DO NOT silently embed a generated mnemonic in code.** When `SparkWallet.initialize()` returns a fresh mnemonic, surface it to the user once with explicit instructions to save it offline, then drop it from working context.
+- **If you think a mnemonic has been exposed in this conversation,** stop and tell the user before doing anything else. Do not attempt to "clean up" by generating a new wallet or sweeping funds without explicit user instruction.
+
 ## Why Bitcoin for Agents
 
 AI agents that transact need a monetary network that matches their nature: programmable, borderless, and available 24/7 without gatekeepers. Bitcoin is that network.
