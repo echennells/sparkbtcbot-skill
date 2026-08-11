@@ -16,38 +16,43 @@ button:disabled{opacity:.5}
 .hide{display:none}
 </style>`;
 
+// One-screen claim: password (+ claim code when set) and a single button. A
+// fresh mnemonic is generated CLIENT-SIDE on submit; the 12 words are shown
+// once AFTER the claim succeeds (no quiz — the leaf-vault backup plus the DO
+// copy mean a skipped paper backup is recoverable-by-download, not fatal).
+// Import + model key live behind an "advanced" disclosure.
 export function setupPage(wordlistJson, hasClaimCode) {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sparkbtcbot setup</title>${STYLE}</head><body><div class="wrap">
-<h1>&#9889; sparkbtcbot<small>first-time setup</small></h1>
-<p>This wallet is unclaimed. Set it up once; after that this page is gone forever.</p>
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sparkbtcbot setup</title>${STYLE}<style>
+details{margin:14px 0}summary{color:#8b949e;font-size:13px;cursor:pointer}
+</style></head><body><div class="wrap">
+<div id="setup">
+<h1>&#9889; sparkbtcbot<small>one-time setup</small></h1>
+<p>Pick a password and you're in. A new wallet is generated in your browser; its recovery words are shown right after (or expand advanced to import an existing one).</p>
 <form id="f">
-${hasClaimCode ? `<label>Claim code (shown when you deployed)</label><input id="code" autocomplete="off" required>` : ""}
-<label>Wallet</label>
-<div>
-  <button type="button" id="genBtn" class="alt">Generate new wallet</button>
-  <button type="button" id="impBtn" class="alt">Import existing 12/24 words</button>
-</div>
-<div id="genBox" class="hide">
-  <div class="warn"><b>Write these words down now, in order, on paper.</b> This is the only time they will ever be shown. They are generated in your browser and never sent anywhere except, encrypted, into this Worker's storage.</div>
-  <div class="words" id="words"></div>
-  <label id="quizLabel"></label><input id="quiz" autocomplete="off">
-</div>
-<div id="impBox" class="hide">
-  <label>Your existing mnemonic (12 or 24 words)</label>
-  <textarea id="mnemonicIn" autocomplete="off"></textarea>
-</div>
+${hasClaimCode ? `<label>Claim code (shown when you deployed)</label><input id="code" autocomplete="off" required autofocus>` : ""}
 <label>Choose a password (min 8 chars — this is how you'll log in)</label>
-<input id="pw" type="password" minlength="8" required>
+<input id="pw" type="password" minlength="8" required ${hasClaimCode ? "" : "autofocus"}>
 <label>Repeat password</label>
 <input id="pw2" type="password" required>
+<details>
+<summary>Advanced: import an existing wallet / bring your own model key</summary>
+<label>Existing mnemonic (12 or 24 words — leave blank to generate a new wallet)</label>
+<textarea id="mnemonicIn" autocomplete="off"></textarea>
 <label>OpenRouter API key (optional — enables Claude/GLM etc.; blank = free Workers AI model)</label>
 <input id="orKey" autocomplete="off" placeholder="sk-or-...">
+</details>
 <div class="err" id="err"></div>
-<button id="go" disabled>Claim wallet</button>
+<button id="go">Create wallet &amp; sign in</button>
 </form>
+</div>
+<div id="backup" class="hide">
+<h1>&#9889; your recovery words</h1>
+<div class="warn"><b>Write these 12 words down, in order, on paper.</b> They will never be shown again. They were generated in your browser and stored only, encrypted, inside this Worker. Anyone with these words controls the wallet.</div>
+<div class="words" id="words"></div>
+<button id="done">I wrote them down &mdash; open my wallet</button>
+</div>
 <script>
 const WORDS = ${wordlistJson};
-let mnemonic = null, mode = null, quizIdx = [];
 const $ = (id) => document.getElementById(id);
 async function gen() {
   const ent = crypto.getRandomValues(new Uint8Array(16));
@@ -59,40 +64,24 @@ async function gen() {
   for (let i = 0; i < 12; i++) ws.push(WORDS[parseInt(bin.slice(i * 11, (i + 1) * 11), 2)]);
   return ws;
 }
-$('genBtn').onclick = async () => {
-  mode = 'gen';
-  const ws = await gen();
-  mnemonic = ws.join(' ');
-  $('words').innerHTML = ws.map((w, i) => '<div><span>' + (i + 1) + '</span>' + w + '</div>').join('');
-  quizIdx = [Math.floor(Math.random() * 6), 6 + Math.floor(Math.random() * 6)];
-  $('quizLabel').textContent = 'Prove you wrote them down: type words #' + (quizIdx[0] + 1) + ' and #' + (quizIdx[1] + 1) + ' (space-separated)';
-  $('genBox').classList.remove('hide'); $('impBox').classList.add('hide');
-  $('go').disabled = false;
-};
-$('impBtn').onclick = () => {
-  mode = 'imp';
-  $('impBox').classList.remove('hide'); $('genBox').classList.add('hide');
-  $('go').disabled = false;
-};
 $('f').onsubmit = async (e) => {
   e.preventDefault();
   const err = $('err'); err.textContent = '';
   if ($('pw').value !== $('pw2').value) { err.textContent = 'passwords do not match'; return; }
-  let m = mnemonic;
-  if (mode === 'imp') m = $('mnemonicIn').value.trim().toLowerCase().replace(/\\s+/g, ' ');
-  if (!m) { err.textContent = 'generate or import a wallet first'; return; }
-  if (mode === 'gen') {
-    const ans = $('quiz').value.trim().toLowerCase().split(/\\s+/);
-    const ws = m.split(' ');
-    if (ans[0] !== ws[quizIdx[0]] || ans[1] !== ws[quizIdx[1]]) { err.textContent = 'quiz words wrong — check your paper backup'; return; }
-  }
+  const imported = $('mnemonicIn').value.trim().toLowerCase().replace(/\\s+/g, ' ');
+  const ws = imported ? null : await gen();
+  const m = imported || ws.join(' ');
   $('go').disabled = true;
   const res = await fetch('/api/claim', { method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ claimCode: ${hasClaimCode ? "$('code').value.trim()" : "''"}, mnemonic: m, password: $('pw').value, openrouterKey: $('orKey').value.trim() || undefined }) });
   const j = await res.json().catch(() => ({}));
-  if (res.ok && j.ok) { location.href = '/'; }
-  else { err.textContent = j.error || ('claim failed (' + res.status + ')'); $('go').disabled = false; }
+  if (!(res.ok && j.ok)) { err.textContent = j.error || ('claim failed (' + res.status + ')'); $('go').disabled = false; return; }
+  if (imported) { location.href = '/'; return; }
+  $('words').innerHTML = ws.map((w, i) => '<div><span>' + (i + 1) + '</span>' + w + '</div>').join('');
+  $('setup').classList.add('hide');
+  $('backup').classList.remove('hide');
 };
+$('done').onclick = () => { location.href = '/'; };
 </script></div></body></html>`;
 }
 
@@ -130,7 +119,7 @@ input{flex:1;background:#161b22;border:1px solid #30363d;border-radius:8px;color
 button{background:#238636;border:0;border-radius:8px;color:#fff;padding:0 18px;font:inherit;cursor:pointer}
 button:disabled{opacity:.5}
 </style></head><body>
-<header><span>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></span><a href="#" id="out">log out</a></header>
+<header><span>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></span><span><a href="#" id="bk" style="margin-right:14px">backup</a><a href="#" id="out">log out</a></span></header>
 <div id="log"></div>
 <form id="f"><input id="i" placeholder="Ask about your wallet&hellip;" autocomplete="off" autofocus><button id="b">Send</button></form>
 <script>
@@ -140,6 +129,16 @@ const history = [];
 function add(cls, text){ const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
 add('bot', 'Hi! I\\'m your Spark wallet bot. Try: "what\\'s my balance?" or "give me a lightning invoice for 500 sats".');
 document.getElementById('out').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', {method:'POST'}); location.href = '/'; };
+document.getElementById('bk').onclick = async (e) => {
+  e.preventDefault();
+  const s = await fetch('/api/leaf-vault/status').then(r => r.json()).catch(() => null);
+  if (!s || !s.hasBundle) {
+    add('tool', '\\u26a0 no exit backup captured yet' + (s && s.lastError ? ' \\u2014 ' + s.lastError : ' \\u2014 snapshots run every 20 min once the wallet holds funds'));
+    return;
+  }
+  add('tool', '\\u2b07 downloading exit backup \\u2014 ' + (s.leafCount ?? '?') + ' leaves, captured ' + (s.bundleCreatedAt || 'unknown') + (s.broken ? ' \\u26a0 backup runs are FAILING; this file is stale' : ''));
+  location.href = '/api/leaf-vault';
+};
 f.addEventListener('submit', async (e) => {
   e.preventDefault();
   const q = i.value.trim(); if (!q) return;

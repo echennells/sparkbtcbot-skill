@@ -11,6 +11,7 @@ import {
   bytesToHex,
 } from "./auth.js";
 import { setupPage, LOGIN_PAGE, CHAT_PAGE } from "./pages.js";
+import { snapshotToDO } from "./leaf-vault.js";
 
 export { WalletDO };
 
@@ -93,18 +94,21 @@ const TOOLS = [
   },
 ];
 
+// Lazy: the SDK does I/O at module-eval time, which workerd forbids at global scope.
+async function initWallet(env, seed) {
+  const { SparkWallet } = await import("@buildonspark/spark-sdk");
+  const init = await SparkWallet.initialize({
+    mnemonicOrSeed: seed,
+    options: { network: env.SPARK_NETWORK || "MAINNET" },
+  });
+  return init.wallet;
+}
+
 async function runTool(name, args, env, state) {
   const maxSend = Number(env.SPARK_MAX_SEND_SATS || 5000);
   const maxLnFee = Number(env.SPARK_MAX_LN_FEE_SATS || 50);
 
-  if (!state.wallet) {
-    const { SparkWallet } = await import("@buildonspark/spark-sdk");
-    const init = await SparkWallet.initialize({
-      mnemonicOrSeed: state.seed,
-      options: { network: env.SPARK_NETWORK || "MAINNET" },
-    });
-    state.wallet = init.wallet;
-  }
+  if (!state.wallet) state.wallet = await initWallet(env, state.seed);
   const wallet = state.wallet;
 
   switch (name) {
@@ -136,6 +140,7 @@ async function runTool(name, args, env, state) {
         invoice: String(args.invoice),
         maxFeeSats: maxLnFee,
       });
+      state.leafChanged = true; // leaves moved — refresh the exit backup after this chat
       return { paid: true, result: JSON.parse(jsonSafe(res)) };
     }
     case "send_spark": {
@@ -148,6 +153,7 @@ async function runTool(name, args, env, state) {
         receiverSparkAddress: String(args.receiverSparkAddress),
         amountSats: amount,
       });
+      state.leafChanged = true; // leaves moved — refresh the exit backup after this chat
       return { sent: true, result: JSON.parse(jsonSafe(res)) };
     }
     default:
@@ -217,7 +223,7 @@ async function callModel(env, config, messages, tools) {
   return res.json();
 }
 
-async function chat(request, env, stub) {
+async function chat(request, env, stub, ctx) {
   const body = await request.json().catch(() => null);
   if (!body) return json({ error: "bad request" }, 400);
 
@@ -265,7 +271,23 @@ async function chat(request, env, stub) {
       reply = content || reply;
     }
   } finally {
-    if (state.wallet) await state.wallet.cleanupConnections().catch(() => {});
+    if (state.wallet) {
+      const wallet = state.wallet;
+      // After a leaf-changing send, refresh the exit backup — via waitUntil so
+      // the user's reply isn't held hostage to the snapshot round-trips.
+      const teardown = (async () => {
+        try {
+          if (state.leafChanged)
+            await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
+        } catch (e) {
+          console.error("[leaf-vault] post-send snapshot failed:", e?.message ?? e);
+        } finally {
+          await wallet.cleanupConnections().catch(() => {});
+        }
+      })();
+      if (ctx) ctx.waitUntil(teardown);
+      else await teardown;
+    }
   }
 
   return json({ reply, toolEvents });
@@ -273,8 +295,36 @@ async function chat(request, env, stub) {
 
 // ---------------------------------------------------------------- router
 
+async function sessionOk(stub, request) {
+  const { sessionSecret } = await stub.getAuth();
+  return verifySession(sessionSecret, readSessionCookie(request));
+}
+
+// Cron body: init the wallet from the DO seed, snapshot, record. Never touches
+// FROST signing — queries + proto codec only.
+async function runCronSnapshot(env, stub) {
+  const seed = await stub.getSeed();
+  if (!seed) return;
+  let wallet;
+  try {
+    wallet = await initWallet(env, seed);
+    const r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
+    console.log("[leaf-vault] cron snapshot:", jsonSafe(r));
+  } catch (e) {
+    console.error("[leaf-vault] cron snapshot failed:", e?.message ?? e);
+  } finally {
+    await wallet?.cleanupConnections?.().catch(() => {});
+  }
+}
+
 export default {
-  async fetch(request, env) {
+  async scheduled(controller, env, ctx) {
+    const stub = env.WALLET_DO.get(env.WALLET_DO.idFromName("primary"));
+    if (!(await stub.isClaimed())) return;
+    ctx.waitUntil(runCronSnapshot(env, stub));
+  },
+
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const stub = env.WALLET_DO.get(env.WALLET_DO.idFromName("primary"));
 
@@ -318,10 +368,42 @@ export default {
       });
 
     if (url.pathname === "/api/chat" && request.method === "POST") {
-      const { sessionSecret } = await stub.getAuth();
-      if (!(await verifySession(sessionSecret, readSessionCookie(request))))
-        return json({ error: "unauthorized" }, 401);
-      return chat(request, env, stub);
+      if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
+      return chat(request, env, stub, ctx);
+    }
+
+    // ---- leaf-vault: download / status / snapshot-now (all session-gated) ----
+    if (url.pathname === "/api/leaf-vault" && request.method === "GET") {
+      if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
+      const vault = await stub.getVault();
+      if (!vault) return json({ error: "no backup captured yet" }, 404);
+      return new Response(vault, {
+        headers: {
+          "content-type": "application/json",
+          "content-disposition": 'attachment; filename="sparkbtcbot-leaf-vault.json"',
+        },
+      });
+    }
+
+    if (url.pathname === "/api/leaf-vault/status" && request.method === "GET") {
+      if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
+      return json(await stub.getVaultStatus());
+    }
+
+    if (url.pathname === "/api/leaf-vault/snapshot" && request.method === "POST") {
+      if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
+      const seed = await stub.getSeed();
+      if (!seed) return json({ error: "unclaimed" }, 409);
+      let wallet;
+      try {
+        wallet = await initWallet(env, seed);
+        const r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
+        return json({ ...r, status: await stub.getVaultStatus() }, r.ok ? 200 : 500);
+      } catch (e) {
+        return json({ ok: false, error: String(e?.message ?? e).slice(0, 400) }, 500);
+      } finally {
+        await wallet?.cleanupConnections?.().catch(() => {});
+      }
     }
 
     // pages

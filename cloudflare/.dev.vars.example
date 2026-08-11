@@ -1,4 +1,12 @@
-# Local dev only — production uses Worker secrets / the claim wizard.
-# SPARK_NETWORK=REGTEST                # override MAINNET for local testing
-# CLAIM_CODE=dev-claim-code            # one-time code required by the setup wizard
-# OPENROUTER_API_KEY=sk-or-...         # enables non-@cf/ models via OpenRouter
+# Secrets surfaced by the Deploy-to-Cloudflare flow (and used by `wrangler dev` locally
+# when copied to .dev.vars). Both are optional — but set CLAIM_CODE for any worker
+# whose URL others might guess before you open it.
+
+# One-time setup code: the first-boot wizard requires it before the wallet can be
+# claimed. Without it, whoever opens your worker URL first claims the wallet.
+CLAIM_CODE=
+
+# Optional: an OpenRouter API key unlocks non-Workers-AI models (Claude, GLM, ...)
+# via the MODEL var. Leave blank to use the free Workers AI model. Can also be
+# pasted in the setup wizard instead.
+OPENROUTER_API_KEY=

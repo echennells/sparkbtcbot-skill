@@ -5,6 +5,16 @@ holds a Spark L2 Bitcoin wallet — the "deploy to Cloudflare" distribution of
 sparkbtcbot. Not the skill itself: the skill's flows and guardrails are
 compiled into fixed tools (see *Architecture*).
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/echennells/sparkbtcbot/tree/cloudflare/cloudflare)
+
+**New here? That button is the whole setup:** it copies this app into your own
+GitHub account, deploys it to your own (free) Cloudflare account, and gives
+you a personal `*.workers.dev` URL. Set the `CLAIM_CODE` secret when the flow
+asks (any string — it's your one-time setup code). Then open your worker's
+URL: enter the claim code, pick a password, write down the 12 recovery words
+it shows you — and you're chatting with your own Bitcoin wallet bot. Nobody
+else (including this repo's author) ever touches your keys.
+
 **Status:** working spike promoted to a product branch. Live-validated on
 mainnet: balance, addresses, receive+claim, Lightning invoice creation.
 Untested: FROST signing with funds (first funded send). See the repo memory /
@@ -32,12 +42,13 @@ npx wrangler deploy --minify
 npx wrangler secret put CLAIM_CODE   # one-time setup code (any string)
 ```
 
-Then open the Worker URL: the **first-boot wizard** asks for the claim code,
-generates the 12 words client-side (shown once, quiz-confirmed) or imports an
-existing mnemonic, and sets the login password. Seed + password hash + session
-secret live in a SQLite Durable Object (encrypted at rest, dashboard-unreadable,
-free plan). After the claim the wizard is gone forever; the page becomes
-password login + 30-day session cookie.
+Then open the Worker URL: the **first-boot wizard** is one screen — enter the
+claim code, pick a password, done. A fresh mnemonic is generated client-side
+and its 12 words are shown once *after* the claim (write them down); an
+existing mnemonic can be imported from the "advanced" disclosure instead. Seed
++ password hash + session secret live in a SQLite Durable Object (encrypted at
+rest, dashboard-unreadable, free plan). After the claim the wizard is gone
+forever; the page becomes password login + 30-day session cookie.
 
 Optional: paste an OpenRouter key in the wizard (or set the
 `OPENROUTER_API_KEY` secret) to use non-`@cf/` models; otherwise the `MODEL`
@@ -56,6 +67,32 @@ wizard, then delete both secrets.
   permits after an explicit user "yes" in the conversation
 - the seed is never readable: Worker secrets are write-only, and no tool
   touches the mnemonic
+
+## Unilateral-exit backup (leaf-vault)
+
+A Spark seed alone cannot unilaterally exit — exit needs the tree of pre-signed
+txs the operators hand the wallet at claim/transfer time. The Worker keeps a
+continuously-fresh `spark.unilateral-exit-bundle.v1` bundle (the same format
+Blink's [spark-unilateral-exit](https://github.com/blinkbitcoin/spark-unilateral-exit)
+recovery CLI consumes) in the Durable Object:
+
+- **cron** (`*/20 * * * *`) snapshots the leaf material; every bundle is
+  gate-proven before storage (shape-validated + every leaf's exit chain
+  rebuilds offline to a root with its pre-signed txs)
+- a snapshot also runs right **after any send** (via `waitUntil`, off the
+  response path)
+- shrink/identity/network guards prevent a partial capture or a different
+  wallet from silently replacing the only good bundle; persistent failures
+  surface as `broken: true` in status
+- `GET /api/leaf-vault` downloads the bundle, `GET /api/leaf-vault/status`
+  reports freshness/health, `POST /api/leaf-vault/snapshot` forces a capture
+  (all session-gated); the chat header's **backup** link wraps the download
+
+Download the bundle periodically (or after big balance changes) and keep it
+with the mnemonic — if the operators ever vanish, the pair is what Blink's
+tool needs to broadcast the exit. `src/leaf-vault.js` is the Worker port of
+`skills/sparkbtcbot/scripts/leaf-vault.js`; the cooperative-exit-window excuse
+is not ported because this Worker has no withdraw tool yet.
 
 ## Security model
 
