@@ -1,0 +1,13 @@
+{
+  "name": "sparkbtcbot",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": { "binding": "AI" },
+  "vars": {
+    "SPARK_NETWORK": "MAINNET",
+    "MODEL": "z-ai/glm-5.2",
+    "SPARK_MAX_SEND_SATS": "5000",
+    "SPARK_MAX_LN_FEE_SATS": "50"
+  }
+}

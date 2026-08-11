@@ -1,0 +1,19 @@
+{
+  "name": "sparkbtcbot-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "description": "sparkbtcbot as a Cloudflare Worker: chat UI + agent loop + Spark wallet tools, free-plan deployable",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node patch-sdk-wasm.js --no-tokens",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify"
+  },
+  "dependencies": {
+    "@buildonspark/spark-sdk": "0.9.0",
+    "@scure/bip39": "^1.4.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.120.1"
+  }
+}

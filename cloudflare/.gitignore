@@ -1,0 +1,7 @@
+node_modules/
+.dev.vars
+.wrangler/
+.mainnet-mnemonic
+.auth-token
+dist*/
+meta.json

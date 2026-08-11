@@ -1,0 +1,4 @@
+# Local dev only — production uses Worker secrets / the claim wizard.
+# SPARK_NETWORK=REGTEST                # override MAINNET for local testing
+# CLAIM_CODE=dev-claim-code            # one-time code required by the setup wizard
+# OPENROUTER_API_KEY=sk-or-...         # enables non-@cf/ models via OpenRouter
