@@ -7,6 +7,9 @@
   // minify + the wasm patch + --no-tokens, and Deploy-button builds run plain
   // `wrangler deploy` — the flag must not live only in an npm script.
   "minify": true,
+  // Deploy-button deployments land with the workers.dev route disabled unless
+  // this is explicit — a new user would get a worker with "No URLs enabled".
+  "workers_dev": true,
   // Leaf-vault safety-net snapshot — same 20-min cadence as the Node agent's
   // interval timer (catches timelock refreshes and received transfers).
   "triggers": { "crons": ["*/20 * * * *"] },
