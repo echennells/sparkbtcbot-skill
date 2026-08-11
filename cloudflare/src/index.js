@@ -1,5 +1,32 @@
+import { validateMnemonic } from "@scure/bip39";
+import { wordlist } from "@scure/bip39/wordlists/english";
+import { WalletDO } from "./do.js";
+import {
+  hashPassword,
+  verifyPassword,
+  mintSession,
+  verifySession,
+  sessionCookie,
+  readSessionCookie,
+  bytesToHex,
+} from "./auth.js";
+import { setupPage, LOGIN_PAGE, CHAT_PAGE } from "./pages.js";
+
+export { WalletDO };
+
 const jsonSafe = (v) =>
   JSON.stringify(v, (k, x) => (typeof x === "bigint" ? x.toString() : x));
+
+const json = (obj, status = 200, headers = {}) =>
+  new Response(jsonSafe(obj), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
+  });
+
+const html = (body) =>
+  new Response(body, { headers: { "content-type": "text/html;charset=utf-8" } });
+
+// ---------------------------------------------------------------- wallet tools
 
 const TOOLS = [
   {
@@ -73,7 +100,7 @@ async function runTool(name, args, env, state) {
   if (!state.wallet) {
     const { SparkWallet } = await import("@buildonspark/spark-sdk");
     const init = await SparkWallet.initialize({
-      mnemonicOrSeed: env.SPARK_MNEMONIC,
+      mnemonicOrSeed: state.seed,
       options: { network: env.SPARK_NETWORK || "MAINNET" },
     });
     state.wallet = init.wallet;
@@ -128,26 +155,7 @@ async function runTool(name, args, env, state) {
   }
 }
 
-function normalizeModelResponse(r) {
-  if (r?.choices?.[0]?.message) {
-    const m = r.choices[0].message;
-    return { content: m.content ?? "", rawCalls: m.tool_calls || [] };
-  }
-  return { content: r?.response ?? "", rawCalls: r?.tool_calls || [] };
-}
-
-function parseCall(tc) {
-  const name = tc.function?.name ?? tc.name;
-  let args = tc.function?.arguments ?? tc.arguments ?? {};
-  if (typeof args === "string") {
-    try {
-      args = JSON.parse(args);
-    } catch {
-      args = {};
-    }
-  }
-  return { name, args, id: tc.id };
-}
+// ---------------------------------------------------------------- agent loop
 
 const SYSTEM_PROMPT = `You are sparkbtcbot, a Bitcoin wallet assistant running on the Spark L2 (MAINNET — real money, real sats).
 You control one wallet via tools. Amounts are always in sats.
@@ -157,6 +165,14 @@ Rules:
 - Be concise. Never invent balances or addresses — always use tools.
 - Report tool results EXACTLY as returned. Never fabricate transaction details, senders, fees, or amounts that a tool did not return. If you don't know something, say so.
 - You cannot access the seed phrase; never discuss revealing it.`;
+
+function normalizeModelResponse(r) {
+  if (r?.choices?.[0]?.message) {
+    const m = r.choices[0].message;
+    return { content: m.content ?? "", rawCalls: m.tool_calls || [] };
+  }
+  return { content: r?.response ?? "", rawCalls: r?.tool_calls || [] };
+}
 
 function withCallIds(rawCalls) {
   return rawCalls.map((tc, i) => ({
@@ -172,27 +188,41 @@ function withCallIds(rawCalls) {
   }));
 }
 
-async function callModel(env, messages, tools) {
-  const useOpenRouter = env.OPENROUTER_API_KEY && !env.MODEL.startsWith("@cf/");
-  if (!useOpenRouter) return env.AI.run(env.MODEL, { messages, tools, max_tokens: 900 });
+function parseCall(tc) {
+  let args = tc.function.arguments;
+  try {
+    args = JSON.parse(args);
+  } catch {
+    args = {};
+  }
+  return { name: tc.function.name, args, id: tc.id };
+}
+
+async function callModel(env, config, messages, tools) {
+  const model = config.model || env.MODEL;
+  const orKey = config.openrouterKey || env.OPENROUTER_API_KEY;
+  if (model.startsWith("@cf/") || !orKey)
+    return env.AI.run(model, { messages, tools, max_tokens: 900 });
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
-      authorization: "Bearer " + env.OPENROUTER_API_KEY,
+      authorization: "Bearer " + orKey,
       "content-type": "application/json",
       "x-title": "sparkbtcbot",
     },
-    body: JSON.stringify({ model: env.MODEL, messages, tools, max_tokens: 900 }),
+    body: JSON.stringify({ model, messages, tools, max_tokens: 900 }),
   });
   if (!res.ok)
     throw new Error("openrouter " + res.status + ": " + (await res.text()).slice(0, 200));
   return res.json();
 }
 
-async function chat(request, env) {
+async function chat(request, env, stub) {
   const body = await request.json().catch(() => null);
-  if (!body || body.token !== env.AUTH_TOKEN || !env.AUTH_TOKEN)
-    return new Response(jsonSafe({ error: "unauthorized" }), { status: 401 });
+  if (!body) return json({ error: "bad request" }, 400);
+
+  const [seed, config] = await Promise.all([stub.getSeed(), stub.getConfig()]);
+  if (!seed) return json({ error: "unclaimed" }, 409);
 
   const history = (Array.isArray(body.messages) ? body.messages : [])
     .filter((m) => m && (m.role === "user" || m.role === "assistant"))
@@ -201,7 +231,7 @@ async function chat(request, env) {
 
   const messages = [{ role: "system", content: SYSTEM_PROMPT }, ...history];
   const tools = TOOLS.map((t) => ({ type: "function", function: t }));
-  const state = {};
+  const state = { seed };
   const toolEvents = [];
   let reply = "";
 
@@ -209,7 +239,7 @@ async function chat(request, env) {
     for (let turn = 0; turn < 6; turn++) {
       let r;
       try {
-        r = await callModel(env, messages, tools);
+        r = await callModel(env, config, messages, tools);
       } catch (e) {
         reply = "model error: " + String(e?.message ?? e).slice(0, 300);
         break;
@@ -230,9 +260,7 @@ async function chat(request, env) {
           result = { error: String(e?.message ?? e).slice(0, 400) };
         }
         toolEvents.push({ tool: name, args, result });
-        const toolMsg = { role: "tool", name, content: jsonSafe(result) };
-        if (id) toolMsg.tool_call_id = id;
-        messages.push(toolMsg);
+        messages.push({ role: "tool", name, content: jsonSafe(result), tool_call_id: id });
       }
       reply = content || reply;
     }
@@ -240,67 +268,67 @@ async function chat(request, env) {
     if (state.wallet) await state.wallet.cleanupConnections().catch(() => {});
   }
 
-  return new Response(jsonSafe({ reply, toolEvents }), {
-    headers: { "content-type": "application/json" },
-  });
+  return json({ reply, toolEvents });
 }
 
-const PAGE = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>sparkbtcbot</title><style>
-:root{color-scheme:dark}
-body{margin:0;background:#0d1117;color:#e6edf3;font:15px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;height:100dvh}
-header{padding:10px 16px;border-bottom:1px solid #21262d;font-weight:600}
-header small{color:#f0b429;font-weight:400;margin-left:8px}
-#log{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
-.msg{max-width:75%;padding:8px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word}
-.user{align-self:flex-end;background:#1f6feb}
-.bot{align-self:flex-start;background:#21262d}
-.tool{align-self:flex-start;color:#8b949e;font-size:12px;font-family:ui-monospace,monospace;padding:0 4px}
-form{display:flex;gap:8px;padding:12px;border-top:1px solid #21262d}
-input{flex:1;background:#161b22;border:1px solid #30363d;border-radius:8px;color:inherit;padding:10px 12px;font:inherit}
-button{background:#238636;border:0;border-radius:8px;color:#fff;padding:0 18px;font:inherit;cursor:pointer}
-button:disabled{opacity:.5}
-</style></head><body>
-<header>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></header>
-<div id="log"></div>
-<form id="f"><input id="i" placeholder="Ask about your wallet&hellip;" autocomplete="off" autofocus><button id="b">Send</button></form>
-<script>
-const log = document.getElementById('log'), f = document.getElementById('f'),
-      i = document.getElementById('i'), b = document.getElementById('b');
-let token = localStorage.sbToken || '';
-const history = [];
-function add(cls, text){ const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
-if (!token) { token = prompt('Access token:') || ''; localStorage.sbToken = token; }
-add('bot', 'Hi! I\\'m your Spark wallet bot. Try: "what\\'s my balance?" or "give me a lightning invoice for 500 sats".');
-f.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const q = i.value.trim(); if (!q) return;
-  i.value = ''; b.disabled = true;
-  add('user', q); history.push({role:'user', content:q});
-  const w = add('tool', 'thinking…');
-  try {
-    const res = await fetch('/api/chat', { method:'POST', headers:{'content-type':'application/json'},
-      body: JSON.stringify({ token, messages: history }) });
-    if (res.status === 401) { localStorage.removeItem('sbToken'); w.textContent = 'bad token — reload the page'; return; }
-    const j = await res.json();
-    w.remove();
-    for (const t of (j.toolEvents || [])) add('tool', '\\u2699 ' + t.tool + ' \\u2192 ' + JSON.stringify(t.result).slice(0, 200));
-    add('bot', j.reply || '(no reply)');
-    history.push({role:'assistant', content: j.reply || ''});
-  } catch (err) { w.textContent = 'error: ' + err; }
-  finally { b.disabled = false; i.focus(); }
-});
-</script></body></html>`;
+// ---------------------------------------------------------------- router
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === "/api/chat" && request.method === "POST")
-      return chat(request, env);
-    if (url.pathname === "/health") return Response.json({ ok: true });
-    return new Response(PAGE, {
-      headers: { "content-type": "text/html;charset=utf-8" },
-    });
+    const stub = env.WALLET_DO.get(env.WALLET_DO.idFromName("primary"));
+
+    if (url.pathname === "/health") return json({ ok: true });
+
+    if (url.pathname === "/api/claim" && request.method === "POST") {
+      if (await stub.isClaimed()) return json({ error: "already claimed" }, 409);
+      const body = await request.json().catch(() => null);
+      if (!body) return json({ error: "bad request" }, 400);
+      const requiredCode = env.CLAIM_CODE || env.AUTH_TOKEN;
+      if (requiredCode && body.claimCode !== requiredCode)
+        return json({ error: "wrong claim code" }, 403);
+      const mnemonic = String(body.mnemonic || "").trim().toLowerCase().replace(/\s+/g, " ");
+      if (!validateMnemonic(mnemonic, wordlist))
+        return json({ error: "invalid mnemonic (checksum failed)" }, 400);
+      if (typeof body.password !== "string" || body.password.length < 8)
+        return json({ error: "password must be at least 8 characters" }, 400);
+      const pwHash = await hashPassword(body.password);
+      const sessionSecret = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+      const config = {};
+      if (body.openrouterKey) config.openrouterKey = String(body.openrouterKey).slice(0, 200);
+      const res = await stub.claim({ mnemonic, pwHash, sessionSecret, config });
+      if (!res.ok) return json({ error: res.error }, 409);
+      const token = await mintSession(sessionSecret);
+      return json({ ok: true }, 200, { "set-cookie": sessionCookie(token) });
+    }
+
+    if (url.pathname === "/api/login" && request.method === "POST") {
+      const body = await request.json().catch(() => null);
+      const { pwHash, sessionSecret } = await stub.getAuth();
+      if (!pwHash) return json({ error: "unclaimed" }, 409);
+      if (!body || !(await verifyPassword(String(body.password || ""), pwHash)))
+        return json({ error: "wrong password" }, 401);
+      const token = await mintSession(sessionSecret);
+      return json({ ok: true }, 200, { "set-cookie": sessionCookie(token) });
+    }
+
+    if (url.pathname === "/api/logout" && request.method === "POST")
+      return json({ ok: true }, 200, {
+        "set-cookie": "sb_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0",
+      });
+
+    if (url.pathname === "/api/chat" && request.method === "POST") {
+      const { sessionSecret } = await stub.getAuth();
+      if (!(await verifySession(sessionSecret, readSessionCookie(request))))
+        return json({ error: "unauthorized" }, 401);
+      return chat(request, env, stub);
+    }
+
+    // pages
+    if (!(await stub.isClaimed()))
+      return html(setupPage(JSON.stringify(wordlist), Boolean(env.CLAIM_CODE || env.AUTH_TOKEN)));
+    const { sessionSecret } = await stub.getAuth();
+    if (await verifySession(sessionSecret, readSessionCookie(request))) return html(CHAT_PAGE);
+    return html(LOGIN_PAGE);
   },
 };

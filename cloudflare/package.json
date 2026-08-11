@@ -5,7 +5,8 @@
   "description": "sparkbtcbot as a Cloudflare Worker: chat UI + agent loop + Spark wallet tools, free-plan deployable",
   "type": "module",
   "scripts": {
-    "postinstall": "node patch-sdk-wasm.js --no-tokens",
+    "postinstall": "node patch-sdk-wasm.cjs --no-tokens",
+    "patch-sdk": "node patch-sdk-wasm.cjs --no-tokens",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify"
   },

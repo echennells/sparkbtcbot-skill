@@ -4,6 +4,10 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "ai": { "binding": "AI" },
+  "durable_objects": {
+    "bindings": [{ "name": "WALLET_DO", "class_name": "WalletDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WalletDO"] }],
   "vars": {
     "SPARK_NETWORK": "MAINNET",
     "MODEL": "z-ai/glm-5.2",
