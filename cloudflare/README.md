@@ -5,7 +5,16 @@ holds a Spark L2 Bitcoin wallet — the "deploy to Cloudflare" distribution of
 sparkbtcbot. Not the skill itself: the skill's flows and guardrails are
 compiled into fixed tools (see *Architecture*).
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/echennells/sparkbtcbot/tree/cloudflare/cloudflare)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/echennells/sparkbtcbot-worker)
+
+> The button points at [echennells/sparkbtcbot-worker](https://github.com/echennells/sparkbtcbot-worker),
+> a standalone mirror of this directory (same tree, app at repo root). Cloudflare's
+> deploy-button cloner silently drops the source files when pointed at a
+> subdirectory of a branch (reproduced twice, 2026-08-11: the copy repo contained
+> only README + wrangler.jsonc and a placeholder worker was deployed) — a dedicated
+> root-level repo is the shape it handles. Keep the mirror in sync after changes
+> here: recreate the root-level commit (`git commit-tree "refs/heads/<branch>:cloudflare"`)
+> and push it to the mirror's `main`.
 
 **New here? That button is the whole setup:** it copies this app into your own
 GitHub account, deploys it to your own (free) Cloudflare account, and gives
