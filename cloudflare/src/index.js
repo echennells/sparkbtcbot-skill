@@ -252,6 +252,14 @@ async function chat(request, env, stub, ctx) {
       }
       const { content, rawCalls } = normalizeModelResponse(r);
       if (!rawCalls.length) {
+        // Models occasionally return a fully empty message (observed: GLM-5.2
+        // handed a long BOLT11 invoice) — retry once instead of surfacing
+        // "(no reply)", and log the raw response so it's diagnosable.
+        if (!content && !state.emptyRetried) {
+          state.emptyRetried = true;
+          console.warn("[chat] empty model response, retrying once:", jsonSafe(r).slice(0, 500));
+          continue;
+        }
         reply = content || "(no reply)";
         break;
       }
