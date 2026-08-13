@@ -133,7 +133,11 @@ document.getElementById('bk').onclick = async (e) => {
   e.preventDefault();
   const s = await fetch('/api/leaf-vault/status').then(r => r.json()).catch(() => null);
   if (!s || !s.hasBundle) {
-    add('tool', '\\u26a0 no exit backup captured yet' + (s && s.lastError ? ' \\u2014 ' + s.lastError : ' \\u2014 snapshots run every 20 min once the wallet holds funds'));
+    let why = ' \\u2014 snapshots run every 20 min once the wallet holds funds';
+    if (s && s.lastError) why = ' \\u2014 ' + s.lastError;
+    else if (s && !s.lastRunAt) why = ' \\u2014 and NO snapshot has ever run: the cron trigger may not be firing';
+    else if (s && s.lastRunAt) why += ' (last attempt ' + new Date(s.lastRunAt).toISOString() + ')';
+    add('tool', '\\u26a0 no exit backup captured yet' + why);
     return;
   }
   add('tool', '\\u2b07 downloading exit backup \\u2014 ' + (s.leafCount ?? '?') + ' leaves, captured ' + (s.bundleCreatedAt || 'unknown') + (s.broken ? ' \\u26a0 backup runs are FAILING; this file is stale' : ''));

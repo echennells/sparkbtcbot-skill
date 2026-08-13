@@ -312,6 +312,12 @@ async function runCronSnapshot(env, stub) {
     console.log("[leaf-vault] cron snapshot:", jsonSafe(r));
   } catch (e) {
     console.error("[leaf-vault] cron snapshot failed:", e?.message ?? e);
+    // A failure before snapshotToDO's own recording (e.g. wallet init) must
+    // still be visible in /api/leaf-vault/status — an unrecorded death is
+    // indistinguishable from "cron never fired".
+    await stub
+      .recordVaultRun({ ok: false, error: "cron: " + String(e?.message ?? e).slice(0, 400) })
+      .catch(() => {});
   } finally {
     await wallet?.cleanupConnections?.().catch(() => {});
   }
