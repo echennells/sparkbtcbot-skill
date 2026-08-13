@@ -10,6 +10,9 @@
   // Deploy-button deployments land with the workers.dev route disabled unless
   // this is explicit — a new user would get a worker with "No URLs enabled".
   "workers_dev": true,
+  // Workers Logs (free tier includes it): without this, "when did X happen"
+  // is unanswerable after the fact — no events are retained at all.
+  "observability": { "enabled": true },
   // Leaf-vault safety-net snapshot — same 20-min cadence as the Node agent's
   // interval timer (catches timelock refreshes and received transfers).
   "triggers": { "crons": ["*/20 * * * *"] },
