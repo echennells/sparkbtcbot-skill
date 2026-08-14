@@ -108,7 +108,14 @@ async function runTool(name, args, env, state) {
   const maxSend = Number(env.SPARK_MAX_SEND_SATS || 5000);
   const maxLnFee = Number(env.SPARK_MAX_LN_FEE_SATS || 50);
 
-  if (!state.wallet) state.wallet = await initWallet(env, state.seed);
+  if (!state.wallet) {
+    state.wallet = await initWallet(env, state.seed);
+    // Same leaf-changing events the Node agent watches: a claim that happens
+    // DURING this request (boot claims pending incoming transfers) marks the
+    // vault dirty so the teardown snapshots even a <30-min-fresh backup.
+    for (const ev of ["balance:update", "transfer:claimed", "deposit:confirmed"])
+      state.wallet.on?.(ev, () => { state.leafChanged = true; });
+  }
   const wallet = state.wallet;
 
   switch (name) {
