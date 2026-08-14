@@ -119,7 +119,7 @@ input{flex:1;background:#161b22;border:1px solid #30363d;border-radius:8px;color
 button{background:#238636;border:0;border-radius:8px;color:#fff;padding:0 18px;font:inherit;cursor:pointer}
 button:disabled{opacity:.5}
 </style></head><body>
-<header><span>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></span><span><a href="#" id="bk" style="margin-right:14px">backup</a><a href="#" id="out">log out</a></span></header>
+<header><span>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></span><span><a href="#" id="snap" style="margin-right:14px">backup now</a><a href="#" id="bk" style="margin-right:14px">download</a><a href="#" id="out">log out</a></span></header>
 <div id="log"></div>
 <form id="f"><input id="i" placeholder="Ask about your wallet&hellip;" autocomplete="off" autofocus><button id="b">Send</button></form>
 <script>
@@ -129,6 +129,16 @@ const history = [];
 function add(cls, text){ const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
 add('bot', 'Hi! I\\'m your Spark wallet bot. Try: "what\\'s my balance?" or "give me a lightning invoice for 500 sats".');
 document.getElementById('out').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', {method:'POST'}); location.href = '/'; };
+document.getElementById('snap').onclick = async (e) => {
+  e.preventDefault();
+  const w = add('tool', '\\u23f3 capturing exit backup\\u2026');
+  try {
+    const r = await fetch('/api/leaf-vault/snapshot', {method:'POST'}).then(x => x.json());
+    w.textContent = r.ok
+      ? '\\u2705 backup captured \\u2014 ' + (r.leafCount ?? '?') + ' leaves (' + (r.skipped || r.network || '') + '). Click download to save it.'
+      : '\\u26a0 backup FAILED \\u2014 ' + (r.error || 'unknown') + (r.skipped ? ' (' + r.skipped + ')' : '');
+  } catch (err) { w.textContent = '\\u26a0 backup request error: ' + err; }
+};
 document.getElementById('bk').onclick = async (e) => {
   e.preventDefault();
   const s = await fetch('/api/leaf-vault/status').then(r => r.json()).catch(() => null);

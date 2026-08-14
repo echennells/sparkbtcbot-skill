@@ -285,10 +285,19 @@ async function chat(request, env, stub, ctx) {
       // the user's reply isn't held hostage to the snapshot round-trips.
       const teardown = (async () => {
         try {
-          if (state.leafChanged)
-            await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
+          // Snapshot when leaves changed (a send) — and ALSO when the stored
+          // backup is stale, so any wallet activity self-heals freshness and
+          // the cron is a belt, not the only suspender. 30 min ≈ 1.5 cron
+          // periods: a working cron makes this a no-op.
+          let refresh = state.leafChanged;
+          if (!refresh) {
+            const s = await stub.getVaultStatus().catch(() => null);
+            const STALE_MS = 30 * 60_000;
+            refresh = !s?.lastSuccessAt || Date.now() - s.lastSuccessAt > STALE_MS;
+          }
+          if (refresh) await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
         } catch (e) {
-          console.error("[leaf-vault] post-send snapshot failed:", e?.message ?? e);
+          console.error("[leaf-vault] post-chat snapshot failed:", e?.message ?? e);
         } finally {
           await wallet.cleanupConnections().catch(() => {});
         }
