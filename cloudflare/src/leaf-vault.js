@@ -177,14 +177,20 @@ export async function takeSnapshot(wallet, prior, { networkLabel } = {}) {
   const ancestors = new Map();
   const onlineLen = new Map();
   const reachesRoot = new Map();
+  // ONE node cache shared across all leaves: sibling leaves share most of
+  // their ancestor chain, and a per-leaf cache re-queries every shared
+  // ancestor — which blows the Workers per-invocation subrequest cap (50 on
+  // free) once the wallet holds more than a dozen leaves (observed live:
+  // "Too many subrequests" at ~24 leaves). proveOffline already shares one
+  // map for all leaves, so the semantics are identical.
+  const nodeMap = new Map();
   for (const leaf of leaves) {
-    const nodeMap = new Map();
     const chain = await sdk.buildUnilateralExitChain(leaf, nodeMap, client, netEnum);
     if (!chain.length) return { ok: false, error: `could not resolve exit chain for leaf ${leaf.id}; backup NOT captured` };
     onlineLen.set(leaf.id, chain.length);
     reachesRoot.set(leaf.id, chain.some((n) => !n?.parentNodeId));
-    for (const n of nodeMap.values()) if (!leafIds.has(n.id)) ancestors.set(n.id, n);
   }
+  for (const n of nodeMap.values()) if (!leafIds.has(n.id)) ancestors.set(n.id, n);
 
   const identity = toHexMaybe(await safe(() => wallet.getIdentityPublicKey?.()));
   const balance = await safe(() => wallet.getBalance?.());
