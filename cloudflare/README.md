@@ -51,13 +51,14 @@ npx wrangler deploy --minify
 npx wrangler secret put CLAIM_CODE   # one-time setup code (any string)
 ```
 
-**Deploy-button caveats** (observed on a real button deploy, 2026-08-11): the
-first deploy may land with the workers.dev route disabled (worker page →
-Domains → enable; `workers_dev: true` in the config addresses this for newer
-flows) and does **not** register the cron trigger from the wrangler config —
-add it manually once (worker page → Settings → Trigger events → Cron
-triggers → `*/20 * * * *`) or the leaf-vault backup never runs. Both are
-one-time dashboard clicks; subsequent git-push builds apply the full config.
+**Deploy-button behavior** (validated on a real button deploy, 2026-08-15):
+deploying from this standalone repo applies the full wrangler config with
+zero dashboard clicks — workers.dev URL enabled, cron trigger registered,
+Workers Logs on, wasm patch run by the build's `postinstall`. (Historical
+note: pointing the button at a *subdirectory of a branch* breaks Cloudflare's
+cloner — the copy repo gets only README + wrangler.jsonc and a placeholder
+worker deploys. That's why this standalone mirror exists; don't restructure
+it back into the monorepo.)
 
 Then open the Worker URL: the **first-boot wizard** is one screen — enter the
 claim code, done (no password to invent: the claim code doubles as the
