@@ -117,6 +117,22 @@ const TOOLS = [
     },
   },
   {
+    name: "pay_l402",
+    description:
+      "Fetch an L402/LSAT-paywalled URL, paying its Lightning invoice if required. Without confirm it returns the quoted price — show the user and get an explicit yes, then call again with confirm=true. Reuses a cached token for the domain when one exists (no re-payment).",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "The paywalled https URL" },
+        confirm: {
+          type: "boolean",
+          description: "Must be true to actually pay; set only after explicit user confirmation",
+        },
+      },
+      required: ["url"],
+    },
+  },
+  {
     name: "send_spark",
     description:
       "Send sats instantly (zero fee) to another Spark address. Only call after the user has explicitly confirmed amount and recipient in this conversation.",
@@ -134,6 +150,43 @@ const TOOLS = [
     },
   },
 ];
+
+// ---- L402 helpers (ported from the skill's l402-paywalls.js) ----
+
+// Invoice amount from the BOLT11 human-readable part — no decoder dependency.
+// Amountless invoices return null (refused: an unbounded invoice can't be
+// amount-guarded). Ceil so the guard over-counts rather than under-counts.
+function bolt11AmountSats(invoice) {
+  const m = /^ln(bc|tb|bcrt)(\d+)([munp])?1/.exec(String(invoice).trim().toLowerCase());
+  if (!m) return null;
+  const mult = { m: 1e-3, u: 1e-6, n: 1e-9, p: 1e-12 }[m[3]] ?? 1;
+  const sats = Math.ceil(Number(m[2]) * mult * 1e8);
+  return Number.isSafeInteger(sats) && sats > 0 ? sats : null;
+}
+
+// Parse a 402 challenge: WWW-Authenticate header first (field-by-name so it
+// survives L402/LSAT schemes, any field order, macaroon= or token=), then the
+// JSON body (non-standard but common).
+async function parseL402Challenge(response) {
+  const wwwAuth = response.headers.get("www-authenticate") || "";
+  const field = (key) => wwwAuth.match(new RegExp(`\\b${key}="([^"]*)"`))?.[1];
+  let invoice = field("invoice");
+  let macaroon = field("macaroon") || field("token");
+  if (!invoice || !macaroon) {
+    const ct = response.headers.get("content-type") || "";
+    if (ct.includes("application/json")) {
+      const body = await response.json().catch(() => ({}));
+      invoice = invoice || body.invoice || body.payment_request || body.pr;
+      macaroon = macaroon || body.macaroon || body.token;
+    }
+  }
+  return invoice && macaroon ? { invoice, macaroon } : null;
+}
+
+const l402Body = async (response) => {
+  const text = await response.text().catch(() => "");
+  return text.slice(0, 1500);
+};
 
 // Lazy: the SDK does I/O at module-eval time, which workerd forbids at global scope.
 async function initWallet(env, seed) {
@@ -244,6 +297,63 @@ async function runTool(name, args, env, state) {
       state.leafChanged = true; // leaves moved — refresh the exit backup after this chat
       return { paid: true, result: JSON.parse(jsonSafe(res)) };
     }
+    case "pay_l402": {
+      let url;
+      try {
+        url = new URL(String(args.url));
+        if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("bad scheme");
+      } catch {
+        return { error: "url must be a valid http(s) URL" };
+      }
+      // Cached token for this domain? Try it first — no payment.
+      const config = (await state.stub?.getConfig?.()) ?? {};
+      const cached = config.l402Tokens?.[url.host];
+      if (cached) {
+        const r = await fetch(url, { headers: { Authorization: `L402 ${cached.macaroon}:${cached.preimage}` } });
+        if (r.status !== 402 && r.status !== 401)
+          return { paid: false, cachedToken: true, status: r.status, data: await l402Body(r) };
+        // expired/rejected — forget it and fall through to pay fresh
+        delete config.l402Tokens[url.host];
+        await state.stub?.setConfig?.({ l402Tokens: config.l402Tokens });
+      }
+      const first = await fetch(url);
+      if (first.status !== 402)
+        return { paid: false, status: first.status, data: await l402Body(first) };
+      const challenge = await parseL402Challenge(first);
+      if (!challenge) return { error: "402 response but no parseable L402 challenge (invoice+macaroon)" };
+      const amountSats = bolt11AmountSats(challenge.invoice);
+      if (amountSats == null) return { refused: "invoice is amountless or unparseable — cannot amount-guard it" };
+      // Bound the AMOUNT, not just the fee: a hostile paywall can demand any invoice.
+      if (amountSats > maxSend)
+        return { refused: `paywall wants ${amountSats} sats — over the ${maxSend}-sat hard cap` };
+      if (args.confirm !== true)
+        return {
+          refused: "confirm flag not set — show the user this price and get an explicit yes",
+          quote: { amountSats, domain: url.host },
+        };
+      // Fee cap mirrors lib/fee-guards lightningFeeCap: max(25, 0.5%) — the 25
+      // floor is a live-payment lesson (a 4,464-sat send needed a 25-sat fee).
+      const feeCap = Math.max(25, Math.ceil((amountSats * 50) / 10_000));
+      const pay = await wallet.payLightningInvoice({ invoice: challenge.invoice, maxFeeSats: feeCap });
+      state.leafChanged = true;
+      // The preimage is the auth secret — poll briefly if the payment is async,
+      // and never return or log it.
+      let preimage = pay?.paymentPreimage;
+      if (!preimage) {
+        for (let i = 0; i < 10 && !preimage; i++) {
+          await new Promise((res) => setTimeout(res, 700));
+          const s = await wallet.getLightningSendRequest?.(pay?.id).catch(() => null);
+          if (s?.status === "LIGHTNING_PAYMENT_FAILED") return { error: "L402 payment failed" };
+          preimage = s?.paymentPreimage;
+        }
+      }
+      if (!preimage) return { error: "paid but no preimage arrived in time — retry the tool; the cached payment may resolve" };
+      const final = await fetch(url, { headers: { Authorization: `L402 ${challenge.macaroon}:${preimage}` } });
+      // Cache the token per-domain in the DO so repeat fetches are free.
+      const tokens = { ...(config.l402Tokens ?? {}), [url.host]: { macaroon: challenge.macaroon, preimage } };
+      await state.stub?.setConfig?.({ l402Tokens: tokens });
+      return { paid: true, amountSats, status: final.status, data: await l402Body(final) };
+    }
     case "send_spark": {
       if (args.confirm !== true)
         return { refused: "confirm flag not set — ask the user to confirm first" };
@@ -268,7 +378,7 @@ const SYSTEM_PROMPT = `You are sparkbtcbot, a Bitcoin wallet assistant running o
 You control one wallet via tools. Amounts are always in sats.
 Rules:
 - Before any send_spark or pay_lightning_invoice, restate amount + recipient and get an explicit "yes" from the user in this conversation; only then call the tool with confirm=true.
-- claim_deposit also needs confirmation: call it WITHOUT confirm first, show the user the quoted credit and max fee, and only after an explicit "yes" call it again with confirm=true.
+- claim_deposit and pay_l402 also need confirmation: call them WITHOUT confirm first, show the user the quote, and only after an explicit "yes" call again with confirm=true.
 - L1 deposits: the single-use address (get_deposit_address) claims automatically after confirmation; the reusable static address (get_static_deposit_address) needs list_pending_deposits + claim_deposit.
 - Per-transaction hard caps are enforced in code; if a tool refuses, relay why.
 - Be concise. Never invent balances or addresses — always use tools.
@@ -340,7 +450,7 @@ async function chat(request, env, stub, ctx) {
 
   const messages = [{ role: "system", content: SYSTEM_PROMPT }, ...history];
   const tools = TOOLS.map((t) => ({ type: "function", function: t }));
-  const state = { seed };
+  const state = { seed, stub }; // stub: pay_l402 caches domain tokens in the DO
   const toolEvents = [];
   let reply = "";
 
