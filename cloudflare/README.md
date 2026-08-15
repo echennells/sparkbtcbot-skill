@@ -60,12 +60,18 @@ triggers → `*/20 * * * *`) or the leaf-vault backup never runs. Both are
 one-time dashboard clicks; subsequent git-push builds apply the full config.
 
 Then open the Worker URL: the **first-boot wizard** is one screen — enter the
-claim code, pick a password, done. A fresh mnemonic is generated client-side
-and its 12 words are shown once *after* the claim (write them down); an
-existing mnemonic can be imported from the "advanced" disclosure instead. Seed
-+ password hash + session secret live in a SQLite Durable Object (encrypted at
-rest, dashboard-unreadable, free plan). After the claim the wizard is gone
-forever; the page becomes password login + 30-day session cookie.
+claim code, done (no password to invent: the claim code doubles as the
+fallback login, checked live against the secret so it's rotatable from the
+dashboard — make it strong). The wizard then offers **passkey enrollment**
+(Face ID / Touch ID / device PIN) for daily login, and shows the freshly
+client-side-generated 12 words once (write them down); an existing mnemonic
+can be imported from the "advanced" disclosure instead. Seed + credentials +
+session secret live in a SQLite Durable Object (encrypted at rest,
+dashboard-unreadable, free plan). After the claim the wizard is gone forever;
+login is passkey-first with the claim code (or a legacy password) as
+fallback, minting a 30-day session cookie. Auth ladder: claim code proves the
+deployer at deploy time → passkey binds the device → the 12 paper words are
+the ultimate recovery.
 
 Optional: paste an OpenRouter key in the wizard (or set the
 `OPENROUTER_API_KEY` secret) to use non-`@cf/` models; otherwise the `MODEL`

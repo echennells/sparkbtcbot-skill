@@ -7,18 +7,16 @@ import { DurableObject } from "cloudflare:workers";
 // makes the first-boot claim wizard possible.
 export class WalletDO extends DurableObject {
   async isClaimed() {
-    const [seed, pwHash] = await Promise.all([
-      this.ctx.storage.get("seed"),
-      this.ctx.storage.get("pwHash"),
-    ]);
-    return Boolean(seed && pwHash);
+    // The seed alone is the claim marker: passkey-era claims may have no
+    // password hash at all (fallback login is the live claim code).
+    return Boolean(await this.ctx.storage.get("seed"));
   }
 
   async claim({ mnemonic, pwHash, sessionSecret, config }) {
     if (await this.isClaimed()) return { ok: false, error: "already claimed" };
     await this.ctx.storage.put({
       seed: mnemonic,
-      pwHash,
+      ...(pwHash ? { pwHash } : {}),
       sessionSecret,
       config: config || {},
       claimedAt: Date.now(),
@@ -46,6 +44,43 @@ export class WalletDO extends DurableObject {
     const config = { ...((await this.ctx.storage.get("config")) ?? {}), ...patch };
     await this.ctx.storage.put("config", config);
     return config;
+  }
+
+  // ---- passkeys: stored credentials + single-use ceremony challenges ----
+  // Single-user system, so one active challenge per purpose ("register" /
+  // "login") is enough; take() is get-and-delete so a challenge can never be
+  // replayed, and expired ones read as absent.
+
+  async putAuthChallenge(purpose, value) {
+    await this.ctx.storage.put("authChallenge:" + purpose, { value, exp: Date.now() + 120_000 });
+  }
+
+  async takeAuthChallenge(purpose) {
+    const key = "authChallenge:" + purpose;
+    const c = await this.ctx.storage.get(key);
+    await this.ctx.storage.delete(key);
+    return c && c.exp > Date.now() ? c.value : null;
+  }
+
+  async getPasskeys() {
+    return (await this.ctx.storage.get("passkeys")) ?? [];
+  }
+
+  async addPasskey(credential) {
+    const list = (await this.ctx.storage.get("passkeys")) ?? [];
+    if (list.some((c) => c.id === credential.id)) return { ok: false, error: "credential already enrolled" };
+    list.push(credential);
+    await this.ctx.storage.put("passkeys", list);
+    return { ok: true, count: list.length };
+  }
+
+  async updatePasskeyCounter(id, counter) {
+    const list = (await this.ctx.storage.get("passkeys")) ?? [];
+    const c = list.find((x) => x.id === id);
+    if (c) {
+      c.counter = counter;
+      await this.ctx.storage.put("passkeys", list);
+    }
   }
 
   // ---- leaf-vault: the unilateral-exit recovery bundle + run health ----

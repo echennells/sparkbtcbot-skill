@@ -1,3 +1,49 @@
+// Client-side WebAuthn ceremony helpers, shared by the pages that need them.
+// Kept dependency-free and interpolation-free (no \${} inside) so it can live
+// safely inside the page template literals.
+const PASSKEY_JS = `
+const bu = {
+  enc: (b) => btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(b)))).replace(/[+]/g,'-').replace(/[/]/g,'_').replace(/=+$/,''),
+  dec: (s) => Uint8Array.from(atob(String(s).replace(/-/g,'+').replace(/_/g,'/')), function(c){return c.charCodeAt(0)})
+};
+async function enrollPasskey(){
+  const o = await fetch('/api/passkey/register-options',{method:'POST'}).then(r=>r.json());
+  if (!o.challenge) throw new Error(o.error||'no options');
+  const cred = await navigator.credentials.create({ publicKey: {
+    challenge: bu.dec(o.challenge),
+    rp: { id: o.rpId, name: 'sparkbtcbot' },
+    user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'wallet', displayName: 'wallet owner' },
+    pubKeyCredParams: [{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+    excludeCredentials: (o.excludeIds||[]).map(function(id){return {type:'public-key', id: bu.dec(id)}}),
+    authenticatorSelection: { residentKey:'preferred', userVerification:'preferred' },
+    timeout: 60000
+  }});
+  const resp = cred.response;
+  const r = await fetch('/api/passkey/register',{method:'POST',headers:{'content-type':'application/json'},
+    body: JSON.stringify({ id: cred.id, clientDataJSON: bu.enc(resp.clientDataJSON),
+      authenticatorData: bu.enc(resp.getAuthenticatorData()), publicKey: bu.enc(resp.getPublicKey()),
+      alg: resp.getPublicKeyAlgorithm() })}).then(function(x){return x.json()});
+  if (!r.ok) throw new Error(r.error||'enroll failed');
+  return r;
+}
+async function passkeyLogin(){
+  const o = await fetch('/api/passkey/login-options',{method:'POST'}).then(r=>r.json());
+  if (!o.challenge) throw new Error(o.error||'no passkeys enrolled yet');
+  const cred = await navigator.credentials.get({ publicKey: {
+    challenge: bu.dec(o.challenge),
+    rpId: o.rpId,
+    allowCredentials: (o.credentialIds||[]).map(function(id){return {type:'public-key', id: bu.dec(id)}}),
+    userVerification: 'preferred', timeout: 60000
+  }});
+  const resp = cred.response;
+  const r = await fetch('/api/passkey/login',{method:'POST',headers:{'content-type':'application/json'},
+    body: JSON.stringify({ id: cred.id, clientDataJSON: bu.enc(resp.clientDataJSON),
+      authenticatorData: bu.enc(resp.authenticatorData), signature: bu.enc(resp.signature) })}).then(function(x){return x.json()});
+  if (!r.ok) throw new Error(r.error||'login failed');
+  return r;
+}
+`;
+
 const STYLE = `<style>
 :root{color-scheme:dark}
 body{margin:0;background:#0d1117;color:#e6edf3;font:15px/1.5 system-ui,sans-serif}
@@ -27,13 +73,16 @@ details{margin:14px 0}summary{color:#8b949e;font-size:13px;cursor:pointer}
 </style></head><body><div class="wrap">
 <div id="setup">
 <h1>&#9889; sparkbtcbot<small>one-time setup</small></h1>
-<p>Pick a password and you're in. A new wallet is generated in your browser; its recovery words are shown right after (or expand advanced to import an existing one).</p>
+${hasClaimCode
+  ? `<p>Enter the claim code you set when deploying and you're in. A new wallet is generated in your browser; you'll add a passkey (Face ID / Touch ID) and see your recovery words right after. The claim code stays your fallback login, so keep it safe.</p>`
+  : `<p>Pick a password and you're in. A new wallet is generated in your browser; its recovery words are shown right after (or expand advanced to import an existing one).</p>`}
 <form id="f">
-${hasClaimCode ? `<label>Claim code (shown when you deployed)</label><input id="code" autocomplete="off" required autofocus>` : ""}
-<label>Choose a password (min 8 chars — this is how you'll log in)</label>
-<input id="pw" type="password" minlength="8" required ${hasClaimCode ? "" : "autofocus"}>
+${hasClaimCode
+  ? `<label>Claim code (shown when you deployed &mdash; also your fallback login)</label><input id="code" autocomplete="off" required autofocus>`
+  : `<label>Choose a password (min 8 chars — this is how you'll log in)</label>
+<input id="pw" type="password" minlength="8" required autofocus>
 <label>Repeat password</label>
-<input id="pw2" type="password" required>
+<input id="pw2" type="password" required>`}
 <details>
 <summary>Advanced: import an existing wallet / bring your own model key</summary>
 <label>Existing mnemonic (12 or 24 words — leave blank to generate a new wallet)</label>
@@ -45,6 +94,13 @@ ${hasClaimCode ? `<label>Claim code (shown when you deployed)</label><input id="
 <button id="go">Create wallet &amp; sign in</button>
 </form>
 </div>
+<div id="pk" class="hide">
+<h1>&#9889; add a passkey</h1>
+<p>Use Face ID / Touch ID / your device PIN to sign in from now on &mdash; nothing to type or remember.${hasClaimCode ? " Your claim code keeps working as the fallback login." : ""}</p>
+<div class="err" id="pkerr"></div>
+<button id="pkgo">Enable passkey</button>
+<button id="pkskip" class="alt">Skip for now</button>
+</div>
 <div id="backup" class="hide">
 <h1>&#9889; your recovery words</h1>
 <div class="warn"><b>Write these 12 words down, in order, on paper.</b> They will never be shown again. They were generated in your browser and stored only, encrypted, inside this Worker. Anyone with these words controls the wallet.</div>
@@ -52,6 +108,7 @@ ${hasClaimCode ? `<label>Claim code (shown when you deployed)</label><input id="
 <button id="done">I wrote them down &mdash; open my wallet</button>
 </div>
 <script>
+${PASSKEY_JS}
 const WORDS = ${wordlistJson};
 const $ = (id) => document.getElementById(id);
 async function gen() {
@@ -64,42 +121,69 @@ async function gen() {
   for (let i = 0; i < 12; i++) ws.push(WORDS[parseInt(bin.slice(i * 11, (i + 1) * 11), 2)]);
   return ws;
 }
+let afterAuth = () => { location.href = '/'; };
 $('f').onsubmit = async (e) => {
   e.preventDefault();
   const err = $('err'); err.textContent = '';
-  if ($('pw').value !== $('pw2').value) { err.textContent = 'passwords do not match'; return; }
+  ${hasClaimCode ? "" : "if ($('pw').value !== $('pw2').value) { err.textContent = 'passwords do not match'; return; }"}
   const imported = $('mnemonicIn').value.trim().toLowerCase().replace(/\\s+/g, ' ');
   const ws = imported ? null : await gen();
   const m = imported || ws.join(' ');
   $('go').disabled = true;
   const res = await fetch('/api/claim', { method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ claimCode: ${hasClaimCode ? "$('code').value.trim()" : "''"}, mnemonic: m, password: $('pw').value, openrouterKey: $('orKey').value.trim() || undefined }) });
+    body: JSON.stringify({ claimCode: ${hasClaimCode ? "$('code').value.trim()" : "''"}, mnemonic: m, password: ${hasClaimCode ? "undefined" : "$('pw').value"}, openrouterKey: $('orKey').value.trim() || undefined }) });
   const j = await res.json().catch(() => ({}));
   if (!(res.ok && j.ok)) { err.textContent = j.error || ('claim failed (' + res.status + ')'); $('go').disabled = false; return; }
-  if (imported) { location.href = '/'; return; }
-  $('words').innerHTML = ws.map((w, i) => '<div><span>' + (i + 1) + '</span>' + w + '</div>').join('');
-  $('setup').classList.add('hide');
-  $('backup').classList.remove('hide');
+  if (!imported) {
+    afterAuth = () => {
+      $('words').innerHTML = ws.map((w, i) => '<div><span>' + (i + 1) + '</span>' + w + '</div>').join('');
+      $('pk').classList.add('hide');
+      $('backup').classList.remove('hide');
+    };
+  }
+  // Passkey step (skippable; unsupported browsers go straight through)
+  if (window.PublicKeyCredential) {
+    $('setup').classList.add('hide');
+    $('pk').classList.remove('hide');
+  } else { afterAuth(); }
 };
+$('pkgo').onclick = async () => {
+  $('pkerr').textContent = '';
+  $('pkgo').disabled = true;
+  try { await enrollPasskey(); afterAuth(); }
+  catch (e) { $('pkerr').textContent = String(e.message || e); $('pkgo').disabled = false; }
+};
+$('pkskip').onclick = () => { afterAuth(); };
 $('done').onclick = () => { location.href = '/'; };
 </script></div></body></html>`;
 }
 
 export const LOGIN_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sparkbtcbot login</title>${STYLE}</head><body><div class="wrap">
 <h1>&#9889; sparkbtcbot<small>login</small></h1>
+<button id="pkbtn" style="width:100%;margin-top:20px">&#128273; Sign in with passkey</button>
+<div class="err" id="pkerr"></div>
 <form id="f">
-<label>Password</label>
-<input id="pw" type="password" autofocus required>
+<label>Or: password / claim code</label>
+<input id="pw" type="password" required>
 <div class="err" id="err"></div>
-<button>Log in</button>
+<button class="alt">Log in</button>
 </form>
 <script>
+${PASSKEY_JS}
+const pkbtn = document.getElementById('pkbtn');
+if (!window.PublicKeyCredential) pkbtn.style.display = 'none';
+pkbtn.onclick = async () => {
+  document.getElementById('pkerr').textContent = '';
+  pkbtn.disabled = true;
+  try { await passkeyLogin(); location.href = '/'; }
+  catch (e) { document.getElementById('pkerr').textContent = String(e.message || e); pkbtn.disabled = false; }
+};
 document.getElementById('f').onsubmit = async (e) => {
   e.preventDefault();
   const res = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ password: document.getElementById('pw').value }) });
   if (res.ok) location.href = '/';
-  else document.getElementById('err').textContent = 'wrong password';
+  else document.getElementById('err').textContent = 'wrong password or claim code';
 };
 </script></div></body></html>`;
 
@@ -120,10 +204,11 @@ button{background:#238636;border:0;border-radius:8px;color:#fff;padding:0 18px;f
 button:disabled{opacity:.5}
 img.qr{display:block;background:#fff;border-radius:8px;padding:8px;margin-top:8px;width:180px;height:180px}
 </style></head><body>
-<header><span>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></span><span><a href="#" id="snap" style="margin-right:14px">backup now</a><a href="#" id="bk" style="margin-right:14px">download</a><a href="#" id="out">log out</a></span></header>
+<header><span>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></span><span><a href="#" id="pk" style="margin-right:14px">passkey</a><a href="#" id="snap" style="margin-right:14px">backup now</a><a href="#" id="bk" style="margin-right:14px">download</a><a href="#" id="out">log out</a></span></header>
 <div id="log"></div>
 <form id="f"><input id="i" placeholder="Ask about your wallet&hellip;" autocomplete="off" autofocus><button id="b">Send</button></form>
 <script>
+${PASSKEY_JS}
 const log = document.getElementById('log'), f = document.getElementById('f'),
       i = document.getElementById('i'), b = document.getElementById('b');
 const history = [];
@@ -137,6 +222,12 @@ function addBot(text){
 }
 add('bot', 'Hi! I\\'m your Spark wallet bot. Try: "what\\'s my balance?" or "give me a lightning invoice for 500 sats".');
 document.getElementById('out').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', {method:'POST'}); location.href = '/'; };
+document.getElementById('pk').onclick = async (e) => {
+  e.preventDefault();
+  if (!window.PublicKeyCredential) { add('tool', '\\u26a0 this browser has no passkey support'); return; }
+  try { const r = await enrollPasskey(); add('tool', '\\u2705 passkey enrolled (' + r.passkeys + ' on file) \\u2014 next login can use Face ID / Touch ID'); }
+  catch (err) { add('tool', '\\u26a0 passkey enrollment failed \\u2014 ' + String(err.message || err)); }
+};
 document.getElementById('snap').onclick = async (e) => {
   e.preventDefault();
   const w = add('tool', '\\u23f3 capturing exit backup\\u2026');

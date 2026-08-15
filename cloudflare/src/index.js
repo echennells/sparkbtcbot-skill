@@ -9,6 +9,10 @@ import {
   sessionCookie,
   readSessionCookie,
   bytesToHex,
+  randomB64u,
+  verifyPasskeyRegistration,
+  verifyPasskeyAssertion,
+  secretsMatch,
 } from "./auth.js";
 import { setupPage, LOGIN_PAGE, CHAT_PAGE } from "./pages.js";
 import { snapshotToDO } from "./leaf-vault.js";
@@ -610,9 +614,17 @@ export default {
       const mnemonic = String(body.mnemonic || "").trim().toLowerCase().replace(/\s+/g, " ");
       if (!validateMnemonic(mnemonic, wordlist))
         return json({ error: "invalid mnemonic (checksum failed)" }, 400);
-      if (typeof body.password !== "string" || body.password.length < 8)
-        return json({ error: "password must be at least 8 characters" }, 400);
-      const pwHash = await hashPassword(body.password);
+      // Passkey-era claims need no password: the claim code doubles as the
+      // fallback login (checked LIVE against the env secret, so it's
+      // rotatable from the dashboard). Without an env code there is no
+      // fallback to inherit, so a password is still required.
+      let pwHash = null;
+      if (typeof body.password === "string" && body.password.length > 0) {
+        if (body.password.length < 8) return json({ error: "password must be at least 8 characters" }, 400);
+        pwHash = await hashPassword(body.password);
+      } else if (!requiredCode) {
+        return json({ error: "password required (no claim code is configured to fall back on)" }, 400);
+      }
       const sessionSecret = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
       const config = {};
       if (body.openrouterKey) config.openrouterKey = String(body.openrouterKey).slice(0, 200);
@@ -625,9 +637,73 @@ export default {
     if (url.pathname === "/api/login" && request.method === "POST") {
       const body = await request.json().catch(() => null);
       const { pwHash, sessionSecret } = await stub.getAuth();
-      if (!pwHash) return json({ error: "unclaimed" }, 409);
-      if (!body || !(await verifyPassword(String(body.password || ""), pwHash)))
-        return json({ error: "wrong password" }, 401);
+      if (!sessionSecret) return json({ error: "unclaimed" }, 409);
+      const supplied = String(body?.password || "");
+      // Legacy password if one was set, else the LIVE claim code (dashboard-
+      // rotatable). Both accepted when both exist.
+      const pwOk = pwHash ? await verifyPassword(supplied, pwHash) : false;
+      const codeOk = !pwOk && (await secretsMatch(supplied, env.CLAIM_CODE || env.AUTH_TOKEN || ""));
+      if (!pwOk && !codeOk) return json({ error: "wrong password or claim code" }, 401);
+      const token = await mintSession(sessionSecret);
+      return json({ ok: true }, 200, { "set-cookie": sessionCookie(token) });
+    }
+
+    // ---- passkeys: enrollment (session-gated) and login (public) ----
+    if (url.pathname === "/api/passkey/register-options" && request.method === "POST") {
+      if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
+      const challenge = randomB64u();
+      await stub.putAuthChallenge("register", challenge);
+      const existing = (await stub.getPasskeys()).map((c) => c.id);
+      return json({ challenge, rpId: url.hostname, excludeIds: existing });
+    }
+
+    if (url.pathname === "/api/passkey/register" && request.method === "POST") {
+      if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
+      const cred = await request.json().catch(() => null);
+      if (!cred) return json({ error: "bad request" }, 400);
+      const expectedChallenge = await stub.takeAuthChallenge("register");
+      try {
+        const stored = await verifyPasskeyRegistration({
+          cred,
+          expectedChallenge,
+          origin: url.origin,
+          rpId: url.hostname,
+        });
+        const r = await stub.addPasskey(stored);
+        if (!r.ok) return json({ error: r.error }, 409);
+        return json({ ok: true, passkeys: r.count });
+      } catch (e) {
+        return json({ error: "enrollment failed: " + String(e?.message ?? e).slice(0, 200) }, 400);
+      }
+    }
+
+    if (url.pathname === "/api/passkey/login-options" && request.method === "POST") {
+      const ids = (await stub.getPasskeys()).map((c) => c.id);
+      if (!ids.length) return json({ error: "no passkeys enrolled" }, 404);
+      const challenge = randomB64u();
+      await stub.putAuthChallenge("login", challenge);
+      return json({ challenge, rpId: url.hostname, credentialIds: ids });
+    }
+
+    if (url.pathname === "/api/passkey/login" && request.method === "POST") {
+      const cred = await request.json().catch(() => null);
+      if (!cred) return json({ error: "bad request" }, 400);
+      const stored = (await stub.getPasskeys()).find((c) => c.id === cred.id);
+      if (!stored) return json({ error: "unknown credential" }, 401);
+      const expectedChallenge = await stub.takeAuthChallenge("login");
+      try {
+        const { counter } = await verifyPasskeyAssertion({
+          cred,
+          stored,
+          expectedChallenge,
+          origin: url.origin,
+          rpId: url.hostname,
+        });
+        await stub.updatePasskeyCounter(stored.id, counter);
+      } catch (e) {
+        return json({ error: "passkey login failed: " + String(e?.message ?? e).slice(0, 200) }, 401);
+      }
+      const { sessionSecret } = await stub.getAuth();
       const token = await mintSession(sessionSecret);
       return json({ ok: true }, 200, { "set-cookie": sessionCookie(token) });
     }
