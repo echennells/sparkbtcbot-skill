@@ -332,7 +332,19 @@ async function runCronSnapshot(env, stub) {
   let wallet;
   try {
     wallet = await initWallet(env, seed);
-    const r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
+    // Booting claims pending incoming transfers, and those claims can land
+    // AFTER the first capture (observed live: a tick claimed 1000 sats yet
+    // captured the pre-claim leaf set). Watch the leaf-changing events and
+    // re-capture after a short settle window, up to twice.
+    let claimed = false;
+    for (const ev of ["balance:update", "transfer:claimed", "deposit:confirmed"])
+      wallet.on?.(ev, () => { claimed = true; });
+    let r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
+    for (let pass = 0; pass < 2 && claimed; pass++) {
+      claimed = false;
+      await new Promise((res) => setTimeout(res, 4000));
+      r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
+    }
     console.log("[leaf-vault] cron snapshot:", jsonSafe(r));
   } catch (e) {
     console.error("[leaf-vault] cron snapshot failed:", e?.message ?? e);
