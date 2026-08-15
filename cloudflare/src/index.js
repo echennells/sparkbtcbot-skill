@@ -324,6 +324,17 @@ async function sessionOk(stub, request) {
   return verifySession(sessionSecret, readSessionCookie(request));
 }
 
+// Current leaf count, or null when it can't be read. The cheap probe that
+// decides whether a full re-capture is worth its subrequest/CPU budget.
+async function leafCountOrNull(wallet) {
+  try {
+    const leaves = await wallet?.leafManager?.getLeaves?.(true);
+    return Array.isArray(leaves) ? leaves.length : null;
+  } catch {
+    return null;
+  }
+}
+
 // Cron body: init the wallet from the DO seed, snapshot, record. Never touches
 // FROST signing — queries + proto codec only.
 async function runCronSnapshot(env, stub) {
@@ -345,7 +356,15 @@ async function runCronSnapshot(env, stub) {
     let r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
     if (claimed) {
       await new Promise((res) => setTimeout(res, 4000));
-      r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
+      // One getLeaves, not a whole snapshot: a re-capture re-runs the ancestor
+      // prefetch, the per-leaf chain walk and a proto-encode of every node, so
+      // spend it only when the set actually moved. An unchanged count means the
+      // first capture already saw the claim; an unreadable count declines to
+      // guess. A failed first pass has no leafCount, so it still gets its retry.
+      const after = await leafCountOrNull(wallet);
+      if (after !== null && after !== r?.leafCount) {
+        r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
+      }
     }
     console.log("[leaf-vault] cron snapshot:", jsonSafe(r));
   } catch (e) {
