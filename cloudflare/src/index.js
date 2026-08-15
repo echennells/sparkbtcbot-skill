@@ -48,6 +48,47 @@ const TOOLS = [
     parameters: { type: "object", properties: {}, required: [] },
   },
   {
+    name: "get_transfers",
+    description:
+      "List this wallet's recent transfers (incoming and outgoing) with amounts, direction, status and timestamps.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max entries (default 10, max 20)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_static_deposit_address",
+    description:
+      "Get the wallet's REUSABLE on-chain Bitcoin (L1) deposit address. Deposits to it need 3 confirmations and must then be CLAIMED (see list_pending_deposits / claim_deposit).",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "list_pending_deposits",
+    description:
+      "List confirmed-but-unclaimed L1 deposits waiting on the static deposit address. Each entry can be claimed with claim_deposit.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "claim_deposit",
+    description:
+      "Claim a confirmed L1 deposit into the Spark balance. Without confirm it returns the quote (credited sats + max fee) — show that to the user and get an explicit yes before calling again with confirm=true.",
+    parameters: {
+      type: "object",
+      properties: {
+        txid: { type: "string", description: "L1 transaction id of the deposit" },
+        vout: { type: "number", description: "Output index (default 0)" },
+        confirm: {
+          type: "boolean",
+          description: "Must be true; set only after the user approved the quoted fee",
+        },
+      },
+      required: ["txid"],
+    },
+  },
+  {
     name: "create_lightning_invoice",
     description: "Create a BOLT11 Lightning invoice so someone can pay this wallet.",
     parameters: {
@@ -130,6 +171,59 @@ async function runTool(name, args, env, state) {
         depositAddress: await wallet.getSingleUseDepositAddress(),
         note: "single-use L1 address; funds appear after confirmation and claim",
       };
+    case "get_transfers": {
+      const limit = Math.min(Math.max(1, Math.floor(Number(args.limit) || 10)), 20);
+      const t = await wallet.getTransfers(limit, 0);
+      return {
+        transfers: (t?.transfers ?? []).map((tr) => ({
+          time: tr.createdTime,
+          type: tr.type,
+          direction: tr.transferDirection,
+          amountSats: String(tr.totalValue ?? ""),
+          status: tr.status,
+        })),
+      };
+    }
+    case "get_static_deposit_address":
+      return {
+        depositAddress: await wallet.getStaticDepositAddress(),
+        note: "reusable L1 address; after 3 confirmations the deposit must be CLAIMED (list_pending_deposits, then claim_deposit)",
+      };
+    case "list_pending_deposits": {
+      // Static-address deposits sit invisible to getBalance until claimed —
+      // scan each static address for confirmed-but-unclaimed UTXOs.
+      const addrs = await wallet.queryStaticDepositAddresses();
+      const pending = [];
+      for (const addr of addrs ?? []) {
+        const utxos = await wallet.getUtxosForDepositAddress(addr, 100, 0, true); // excludeClaimed
+        for (const u of utxos ?? []) pending.push({ txid: u.txid, vout: u.vout, address: addr });
+      }
+      return { pending, note: pending.length ? "claim each with claim_deposit" : "nothing confirmed-and-unclaimed" };
+    }
+    case "claim_deposit": {
+      const txid = String(args.txid || "");
+      const vout = Math.max(0, Math.floor(Number(args.vout) || 0));
+      // Quote first, always: the fee ceiling is SIZE-AWARE (10% of the quoted
+      // credit) and fails closed on an unreadable quote — same posture as the
+      // Node agent's claimDeposit.
+      const quote = await wallet.getClaimStaticDepositQuote(txid, vout);
+      const quoted = quote?.creditAmountSats == null ? NaN : Number(quote.creditAmountSats);
+      if (!Number.isFinite(quoted))
+        return { error: "claim quote unreadable for this txid/vout — is the deposit confirmed (3 blocks)?" };
+      const maxFee = Math.ceil(quoted / 10);
+      if (args.confirm !== true)
+        return {
+          refused: "confirm flag not set — show the user this quote and ask for an explicit yes",
+          quote: { creditSats: quoted, maxFeeSats: maxFee, txid, vout },
+        };
+      const res = await wallet.claimStaticDepositWithMaxFee({
+        transactionId: txid,
+        outputIndex: vout,
+        maxFee,
+      });
+      state.leafChanged = true; // leaves changed — refresh the exit backup after this chat
+      return { claimed: true, creditSats: quoted, result: JSON.parse(jsonSafe(res)) };
+    }
     case "create_lightning_invoice": {
       const inv = await wallet.createLightningInvoice({
         amountSats: Math.floor(Number(args.amountSats)),
@@ -174,6 +268,8 @@ const SYSTEM_PROMPT = `You are sparkbtcbot, a Bitcoin wallet assistant running o
 You control one wallet via tools. Amounts are always in sats.
 Rules:
 - Before any send_spark or pay_lightning_invoice, restate amount + recipient and get an explicit "yes" from the user in this conversation; only then call the tool with confirm=true.
+- claim_deposit also needs confirmation: call it WITHOUT confirm first, show the user the quoted credit and max fee, and only after an explicit "yes" call it again with confirm=true.
+- L1 deposits: the single-use address (get_deposit_address) claims automatically after confirmation; the reusable static address (get_static_deposit_address) needs list_pending_deposits + claim_deposit.
 - Per-transaction hard caps are enforced in code; if a tool refuses, relay why.
 - Be concise. Never invent balances or addresses — always use tools.
 - Report tool results EXACTLY as returned. Never fabricate transaction details, senders, fees, or amounts that a tool did not return. If you don't know something, say so.
