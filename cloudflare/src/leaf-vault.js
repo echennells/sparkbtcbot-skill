@@ -144,7 +144,7 @@ async function proveOffline(sdk, TreeNode, leaves, nodes) {
 //   { ok: false, error, rescueBundle? }                        // guard tripped; rescue is gate-proven
 export async function takeSnapshot(wallet, prior, { networkLabel } = {}) {
   const sdk = await import("@buildonspark/spark-sdk");
-  const { TreeNode, networkToJSON } = await import("@buildonspark/spark-sdk/proto/spark");
+  const { TreeNode, networkToJSON, networkFromJSON } = await import("@buildonspark/spark-sdk/proto/spark");
   assertInternalsIntact(wallet, TreeNode);
   const encodeNode = (node) => u8ToHex(TreeNode.encode(TreeNode.fromPartial(node)).finish());
 
@@ -184,6 +184,30 @@ export async function takeSnapshot(wallet, prior, { networkLabel } = {}) {
   // "Too many subrequests" at ~24 leaves). proveOffline already shares one
   // map for all leaves, so the semantics are identical.
   const nodeMap = new Map();
+  // Bulk-prefetch every leaf's ancestors in a few paged query_nodes calls —
+  // the same includeParents query Blink's exporter uses. Without it, chain
+  // resolution below issues one query per missing parent, and the query count
+  // scales with leaf count until it trips the subrequest cap. Best-effort:
+  // any gap (or a failed prefetch) falls back to the per-node client path.
+  try {
+    const PAGE = 100;
+    let protoNet;
+    try { protoNet = networkFromJSON(network); } catch { protoNet = undefined; }
+    const ids = leaves.map((l) => l.id);
+    for (let s = 0; s < ids.length; s += PAGE) {
+      const resp = await client.query_nodes({
+        source: { $case: "nodeIds", nodeIds: { nodeIds: ids.slice(s, s + PAGE) } },
+        includeParents: true,
+        limit: PAGE,
+        offset: 0,
+        ...(protoNet !== undefined ? { network: protoNet } : {}),
+      });
+      const entries = resp?.nodes instanceof Map ? resp.nodes.entries() : Object.entries(resp?.nodes ?? {});
+      for (const [id, n] of entries) nodeMap.set(id, n);
+    }
+  } catch (e) {
+    console.warn("[leaf-vault] bulk ancestor prefetch failed; per-node fallback:", e?.message ?? e);
+  }
   for (const leaf of leaves) {
     const chain = await sdk.buildUnilateralExitChain(leaf, nodeMap, client, netEnum);
     if (!chain.length) return { ok: false, error: `could not resolve exit chain for leaf ${leaf.id}; backup NOT captured` };
