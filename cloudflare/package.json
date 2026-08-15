@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@buildonspark/spark-sdk": "0.9.0",
-    "@scure/bip39": "^1.4.0"
+    "@scure/bip39": "^1.4.0",
+    "qrcode-generator": "2.0.4"
   },
   "devDependencies": {
     "wrangler": "^4.120.1"

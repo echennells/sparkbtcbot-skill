@@ -118,6 +118,7 @@ form{display:flex;gap:8px;padding:12px;border-top:1px solid #21262d}
 input{flex:1;background:#161b22;border:1px solid #30363d;border-radius:8px;color:inherit;padding:10px 12px;font:inherit}
 button{background:#238636;border:0;border-radius:8px;color:#fff;padding:0 18px;font:inherit;cursor:pointer}
 button:disabled{opacity:.5}
+img.qr{display:block;background:#fff;border-radius:8px;padding:8px;margin-top:8px;width:180px;height:180px}
 </style></head><body>
 <header><span>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></span><span><a href="#" id="snap" style="margin-right:14px">backup now</a><a href="#" id="bk" style="margin-right:14px">download</a><a href="#" id="out">log out</a></span></header>
 <div id="log"></div>
@@ -127,6 +128,13 @@ const log = document.getElementById('log'), f = document.getElementById('f'),
       i = document.getElementById('i'), b = document.getElementById('b');
 const history = [];
 function add(cls, text){ const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
+// Bot messages containing an address/invoice get a QR appended automatically.
+function addBot(text){
+  const d = add('bot', text);
+  const m = String(text).match(/\b(lnbc[a-z0-9]{20,}|spark1[a-z0-9]{20,}|bc1[a-z0-9]{12,})\b/i);
+  if (m) { const img = document.createElement('img'); img.className = 'qr'; img.alt = 'QR'; img.src = '/api/qr?d=' + encodeURIComponent(m[1]); d.appendChild(img); log.scrollTop = log.scrollHeight; }
+  return d;
+}
 add('bot', 'Hi! I\\'m your Spark wallet bot. Try: "what\\'s my balance?" or "give me a lightning invoice for 500 sats".');
 document.getElementById('out').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', {method:'POST'}); location.href = '/'; };
 document.getElementById('snap').onclick = async (e) => {
@@ -166,7 +174,7 @@ f.addEventListener('submit', async (e) => {
     const j = await res.json();
     w.remove();
     for (const t of (j.toolEvents || [])) add('tool', '\\u2699 ' + t.tool + ' \\u2192 ' + JSON.stringify(t.result).slice(0, 200));
-    add('bot', j.reply || '(no reply)');
+    addBot(j.reply || '(no reply)');
     history.push({role:'assistant', content: j.reply || ''});
   } catch (err) { w.textContent = 'error: ' + err; }
   finally { b.disabled = false; i.focus(); }

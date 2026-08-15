@@ -641,6 +641,29 @@ export default {
       return chat(request, env, stub, ctx);
     }
 
+    // QR render for addresses/invoices the bot hands out. Session-gated so it
+    // isn't a free QR service for the internet; SVG so it's crisp and tiny.
+    if (url.pathname === "/api/qr" && request.method === "GET") {
+      if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
+      const data = url.searchParams.get("d") || "";
+      if (!data || data.length > 1200) return json({ error: "d must be 1..1200 chars" }, 400);
+      const qrcode = (await import("qrcode-generator")).default;
+      // Uppercase bech32 payloads so the encoder can use alphanumeric mode
+      // (smaller, easier-scanning QR) — valid for bech32/bech32m and BOLT11.
+      const payload = /^(lnbc|lntb|spark1|bc1|bitcoin:)[a-z0-9:]+$/i.test(data) ? data.toUpperCase() : data;
+      let qr;
+      try {
+        qr = qrcode(0, "M");
+        qr.addData(payload);
+        qr.make();
+      } catch {
+        return json({ error: "data does not fit in a QR code" }, 400);
+      }
+      return new Response(qr.createSvgTag({ cellSize: 4, margin: 4, scalable: true }), {
+        headers: { "content-type": "image/svg+xml", "cache-control": "private, max-age=3600" },
+      });
+    }
+
     // ---- leaf-vault: download / status / snapshot-now (all session-gated) ----
     if (url.pathname === "/api/leaf-vault" && request.method === "GET") {
       if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
