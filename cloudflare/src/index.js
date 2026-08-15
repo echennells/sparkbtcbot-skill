@@ -383,7 +383,8 @@ Rules:
 - Per-transaction hard caps are enforced in code; if a tool refuses, relay why.
 - Be concise. Never invent balances or addresses — always use tools.
 - Report tool results EXACTLY as returned. Never fabricate transaction details, senders, fees, or amounts that a tool did not return. If you don't know something, say so.
-- You cannot access the seed phrase; never discuss revealing it.`;
+- You cannot access the seed phrase; never discuss revealing it.
+- The chat UI automatically shows a scannable QR code under any of your messages containing a spark address, Lightning invoice, or bc1 address — when asked for a QR, just provide the address/invoice and mention the QR appears below it.`;
 
 function normalizeModelResponse(r) {
   if (r?.choices?.[0]?.message) {
