@@ -336,12 +336,14 @@ async function runCronSnapshot(env, stub) {
     // AFTER the first capture (observed live: a tick claimed 1000 sats yet
     // captured the pre-claim leaf set). Watch the leaf-changing events and
     // re-capture after a short settle window, up to twice.
+    // Only the two events that PROVE a leaf change — balance:update fires on
+    // ordinary boots too, and re-capturing on it tripled the CPU per tick
+    // (observed live: consecutive exceededCpu kills on a heavy leafset).
     let claimed = false;
-    for (const ev of ["balance:update", "transfer:claimed", "deposit:confirmed"])
+    for (const ev of ["transfer:claimed", "deposit:confirmed"])
       wallet.on?.(ev, () => { claimed = true; });
     let r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
-    for (let pass = 0; pass < 2 && claimed; pass++) {
-      claimed = false;
+    if (claimed) {
       await new Promise((res) => setTimeout(res, 4000));
       r = await snapshotToDO(wallet, stub, { networkLabel: env.SPARK_NETWORK });
     }
