@@ -213,11 +213,15 @@ const log = document.getElementById('log'), f = document.getElementById('f'),
       i = document.getElementById('i'), b = document.getElementById('b');
 const history = [];
 function add(cls, text){ const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
-// Bot messages containing an address/invoice get a QR appended automatically.
-function addBot(text){
+// QR codes attach ONLY to receive-artifacts produced by tools this turn —
+// an address you're SENDING to must never get one (someone scanning it would
+// pay the recipient), so message text is never scanned.
+const QR_TOOLS = { get_spark_address: 'sparkAddress', create_lightning_invoice: 'encodedInvoice', get_deposit_address: 'depositAddress', get_static_deposit_address: 'depositAddress' };
+function addBot(text, toolEvents){
   const d = add('bot', text);
-  const m = String(text).match(/\\b(lnbc[a-z0-9]{20,}|spark1[a-z0-9]{20,}|bc1[a-z0-9]{12,})\\b/i);
-  if (m) { const img = document.createElement('img'); img.className = 'qr'; img.alt = 'QR'; img.src = '/api/qr?d=' + encodeURIComponent(m[1]); d.appendChild(img); log.scrollTop = log.scrollHeight; }
+  let data = null;
+  for (const t of (toolEvents || [])) { const f = QR_TOOLS[t.tool]; if (f && t.result && typeof t.result[f] === 'string') data = t.result[f]; }
+  if (data) { const img = document.createElement('img'); img.className = 'qr'; img.alt = 'QR'; img.src = '/api/qr?d=' + encodeURIComponent(data); d.appendChild(img); log.scrollTop = log.scrollHeight; }
   return d;
 }
 add('bot', 'Hi! I\\'m your Spark wallet bot. Try: "what\\'s my balance?" or "give me a lightning invoice for 500 sats".');
@@ -265,7 +269,7 @@ f.addEventListener('submit', async (e) => {
     const j = await res.json();
     w.remove();
     for (const t of (j.toolEvents || [])) add('tool', '\\u2699 ' + t.tool + ' \\u2192 ' + JSON.stringify(t.result).slice(0, 200));
-    addBot(j.reply || '(no reply)');
+    addBot(j.reply || '(no reply)', j.toolEvents);
     history.push({role:'assistant', content: j.reply || ''});
   } catch (err) { w.textContent = 'error: ' + err; }
   finally { b.disabled = false; i.focus(); }

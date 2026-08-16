@@ -388,7 +388,7 @@ Rules:
 - Be concise. Never invent balances or addresses — always use tools.
 - Report tool results EXACTLY as returned. Never fabricate transaction details, senders, fees, or amounts that a tool did not return. If you don't know something, say so.
 - You cannot access the seed phrase; never discuss revealing it.
-- The chat UI automatically shows a scannable QR code under any of your messages containing a spark address, Lightning invoice, or bc1 address — when asked for a QR, just provide the address/invoice and mention the QR appears below it.`;
+- The chat UI automatically shows a scannable QR code when a tool returns a RECEIVING artifact (your spark address, a deposit address, or an invoice you create) — when asked for a QR, call the matching tool and mention the QR appears below. Outgoing sends never get a QR.`;
 
 function normalizeModelResponse(r) {
   if (r?.choices?.[0]?.message) {
