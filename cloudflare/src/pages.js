@@ -196,6 +196,32 @@ if (lf) lf.onsubmit = async (e) => {
 </script></div></body></html>`;
 }
 
+// Session-gated seed reveal — the worker equivalent of the Node skill's
+// reveal-mnemonic: deliberate, user-initiated, rendered only in the owner's
+// logged-in browser. The words never transit chat, tools, logs, or any
+// transcript, and the model has no tool that can reach them.
+export const REVEAL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sparkbtcbot reveal</title>${STYLE}</head><body><div class="wrap">
+<h1>&#9889; recovery words</h1>
+<div class="warn"><b>These 12 words ARE the wallet.</b> Anyone who sees them controls the funds — forever, from anywhere. Reveal only on a private screen, and copy them to PAPER — not a file, screenshot, or clipboard.</div>
+<button id="go">Reveal my recovery words</button>
+<div class="words hide" id="words"></div>
+<div class="err" id="err"></div>
+<p style="color:#8b949e;font-size:13px"><a href="/" style="color:#8b949e">&larr; back to chat</a></p>
+<script>
+document.getElementById('go').onclick = async () => {
+  const err = document.getElementById('err'); err.textContent = '';
+  try {
+    const r = await fetch('/api/reveal-seed', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok || !j.mnemonic) { err.textContent = j.error || 'reveal failed'; return; }
+    const el = document.getElementById('words');
+    el.innerHTML = j.mnemonic.trim().split(/\\s+/).map((w, i) => '<div><span>' + (i + 1) + '</span>' + w + '</div>').join('');
+    el.classList.remove('hide');
+    document.getElementById('go').remove();
+  } catch (e) { err.textContent = String(e); }
+};
+</script></div></body></html>`;
+
 // showEnroll: the header "passkey" link exists only until a passkey is on file.
 export function chatPage(showEnroll) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sparkbtcbot</title><style>

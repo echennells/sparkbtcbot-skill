@@ -14,7 +14,7 @@ import {
   verifyPasskeyAssertion,
   secretsMatch,
 } from "./auth.js";
-import { setupPage, loginPage, chatPage } from "./pages.js";
+import { setupPage, loginPage, chatPage, REVEAL_PAGE } from "./pages.js";
 import { snapshotToDO } from "./leaf-vault.js";
 import { mcpCall, parsePackages, parseBuyResponse, parseOrderStatus } from "./bitrefill.js";
 
@@ -988,6 +988,20 @@ export default {
     if (url.pathname === "/api/chat" && request.method === "POST") {
       if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
       return chat(request, env, stub, ctx);
+    }
+
+    // Seed reveal: page + endpoint, both session-gated. A page the OWNER's
+    // browser renders — deliberately not a tool, so the model can never call
+    // it, and deliberately never logged.
+    if (url.pathname === "/reveal" && request.method === "GET") {
+      if (!(await sessionOk(stub, request))) return html(loginPage((await stub.getPasskeys()).length > 0, String(env.SPARK_ALLOW_FALLBACK_LOGIN).toLowerCase() === "true"));
+      return html(REVEAL_PAGE);
+    }
+    if (url.pathname === "/api/reveal-seed" && request.method === "POST") {
+      if (!(await sessionOk(stub, request))) return json({ error: "unauthorized" }, 401);
+      const seed = await stub.getSeed();
+      if (!seed) return json({ error: "unclaimed" }, 409);
+      return json({ mnemonic: seed });
     }
 
     // QR render for addresses/invoices the bot hands out. Session-gated so it
