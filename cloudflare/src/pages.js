@@ -216,7 +216,7 @@ function add(cls, text){ const d = document.createElement('div'); d.className = 
 // Bot messages containing an address/invoice get a QR appended automatically.
 function addBot(text){
   const d = add('bot', text);
-  const m = String(text).match(/\b(lnbc[a-z0-9]{20,}|spark1[a-z0-9]{20,}|bc1[a-z0-9]{12,})\b/i);
+  const m = String(text).match(/\\b(lnbc[a-z0-9]{20,}|spark1[a-z0-9]{20,}|bc1[a-z0-9]{12,})\\b/i);
   if (m) { const img = document.createElement('img'); img.className = 'qr'; img.alt = 'QR'; img.src = '/api/qr?d=' + encodeURIComponent(m[1]); d.appendChild(img); log.scrollTop = log.scrollHeight; }
   return d;
 }
