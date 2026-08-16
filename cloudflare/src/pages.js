@@ -96,7 +96,7 @@ ${hasClaimCode
 </div>
 <div id="pk" class="hide">
 <h1>&#9889; add a passkey</h1>
-<p>Use Face ID / Touch ID / your device PIN to sign in from now on &mdash; nothing to type or remember.${hasClaimCode ? " Your claim code keeps working as the fallback login." : ""}</p>
+<p>Use Face ID / Touch ID / your device PIN to sign in from now on &mdash; nothing to type or remember. <b>Enrolling disables the typed login</b>: from then on this passkey is the only way in${hasClaimCode ? " (lost-device recovery: re-enable claim-code login via the SPARK_ALLOW_FALLBACK_LOGIN variable in your Cloudflare dashboard)" : ""}.</p>
 <div class="err" id="pkerr"></div>
 <button id="pkgo">Enable passkey</button>
 <button id="pkskip" class="alt">Skip for now</button>
@@ -158,36 +158,47 @@ $('done').onclick = () => { location.href = '/'; };
 </script></div></body></html>`;
 }
 
-export const LOGIN_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sparkbtcbot login</title>${STYLE}</head><body><div class="wrap">
+// hasPasskeys + fallback policy shape the page: once a passkey exists (and
+// fallback isn't re-enabled via SPARK_ALLOW_FALLBACK_LOGIN), the password/
+// claim-code form is gone — the passkey is the only door.
+export function loginPage(hasPasskeys, allowFallback) {
+  const showForm = !hasPasskeys || allowFallback;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sparkbtcbot login</title>${STYLE}</head><body><div class="wrap">
 <h1>&#9889; sparkbtcbot<small>login</small></h1>
-<button id="pkbtn" style="width:100%;margin-top:20px">&#128273; Sign in with passkey</button>
-<div class="err" id="pkerr"></div>
-<form id="f">
-<label>Or: password / claim code</label>
+${hasPasskeys ? `<button id="pkbtn" style="width:100%;margin-top:20px">&#128273; Sign in with passkey</button>
+<div class="err" id="pkerr"></div>` : ""}
+${showForm ? `<form id="f">
+<label>${hasPasskeys ? "Or: password / claim code" : "Password / claim code"}</label>
 <input id="pw" type="password" required>
 <div class="err" id="err"></div>
 <button class="alt">Log in</button>
-</form>
+</form>` : `<p style="color:#8b949e;font-size:13px">This wallet is passkey-only. Lost your passkey? The wallet owner can set the <code>SPARK_ALLOW_FALLBACK_LOGIN</code> variable to <code>true</code> in the Cloudflare dashboard to re-enable claim-code login.</p>`}
 <script>
 ${PASSKEY_JS}
 const pkbtn = document.getElementById('pkbtn');
-if (!window.PublicKeyCredential) pkbtn.style.display = 'none';
-pkbtn.onclick = async () => {
-  document.getElementById('pkerr').textContent = '';
-  pkbtn.disabled = true;
-  try { await passkeyLogin(); location.href = '/'; }
-  catch (e) { document.getElementById('pkerr').textContent = String(e.message || e); pkbtn.disabled = false; }
-};
-document.getElementById('f').onsubmit = async (e) => {
+if (pkbtn) {
+  if (!window.PublicKeyCredential) pkbtn.style.display = 'none';
+  pkbtn.onclick = async () => {
+    document.getElementById('pkerr').textContent = '';
+    pkbtn.disabled = true;
+    try { await passkeyLogin(); location.href = '/'; }
+    catch (e) { document.getElementById('pkerr').textContent = String(e.message || e); pkbtn.disabled = false; }
+  };
+}
+const lf = document.getElementById('f');
+if (lf) lf.onsubmit = async (e) => {
   e.preventDefault();
   const res = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ password: document.getElementById('pw').value }) });
   if (res.ok) location.href = '/';
-  else document.getElementById('err').textContent = 'wrong password or claim code';
+  else document.getElementById('err').textContent = 'login refused';
 };
 </script></div></body></html>`;
+}
 
-export const CHAT_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sparkbtcbot</title><style>
+// showEnroll: the header "passkey" link exists only until a passkey is on file.
+export function chatPage(showEnroll) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sparkbtcbot</title><style>
 :root{color-scheme:dark}
 body{margin:0;background:#0d1117;color:#e6edf3;font:15px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;height:100dvh}
 header{padding:10px 16px;border-bottom:1px solid #21262d;font-weight:600;display:flex;justify-content:space-between;align-items:center}
@@ -204,7 +215,7 @@ button{background:#238636;border:0;border-radius:8px;color:#fff;padding:0 18px;f
 button:disabled{opacity:.5}
 img.qr{display:block;background:#fff;border-radius:8px;padding:8px;margin-top:8px;width:180px;height:180px}
 </style></head><body>
-<header><span>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></span><span><a href="#" id="pk" style="margin-right:14px">passkey</a><a href="#" id="snap" style="margin-right:14px">backup now</a><a href="#" id="bk" style="margin-right:14px">download</a><a href="#" id="out">log out</a></span></header>
+<header><span>&#9889; sparkbtcbot<small>Spark L2 &middot; MAINNET</small></span><span>${showEnroll ? `<a href="#" id="pk" style="margin-right:14px">passkey</a>` : ""}<a href="#" id="snap" style="margin-right:14px">backup now</a><a href="#" id="bk" style="margin-right:14px">download</a><a href="#" id="out">log out</a></span></header>
 <div id="log"></div>
 <form id="f"><input id="i" placeholder="Ask about your wallet&hellip;" autocomplete="off" autofocus><button id="b">Send</button></form>
 <script>
@@ -226,10 +237,11 @@ function addBot(text, toolEvents){
 }
 add('bot', 'Hi! I\\'m your Spark wallet bot. Try: "what\\'s my balance?" or "give me a lightning invoice for 500 sats".');
 document.getElementById('out').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', {method:'POST'}); location.href = '/'; };
-document.getElementById('pk').onclick = async (e) => {
+const pkLink = document.getElementById('pk');
+if (pkLink) pkLink.onclick = async (e) => {
   e.preventDefault();
   if (!window.PublicKeyCredential) { add('tool', '\\u26a0 this browser has no passkey support'); return; }
-  try { const r = await enrollPasskey(); add('tool', '\\u2705 passkey enrolled (' + r.passkeys + ' on file) \\u2014 next login can use Face ID / Touch ID'); }
+  try { const r = await enrollPasskey(); add('tool', '\\u2705 passkey enrolled (' + r.passkeys + ' on file) \\u2014 next login uses Face ID / Touch ID; claim-code login is now disabled'); pkLink.remove(); }
   catch (err) { add('tool', '\\u26a0 passkey enrollment failed \\u2014 ' + String(err.message || err)); }
 };
 document.getElementById('snap').onclick = async (e) => {
@@ -275,3 +287,4 @@ f.addEventListener('submit', async (e) => {
   finally { b.disabled = false; i.focus(); }
 });
 </script></body></html>`;
+}

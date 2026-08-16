@@ -14,7 +14,7 @@ import {
   verifyPasskeyAssertion,
   secretsMatch,
 } from "./auth.js";
-import { setupPage, LOGIN_PAGE, CHAT_PAGE } from "./pages.js";
+import { setupPage, loginPage, chatPage } from "./pages.js";
 import { snapshotToDO } from "./leaf-vault.js";
 import { mcpCall, parsePackages, parseBuyResponse, parseOrderStatus } from "./bitrefill.js";
 
@@ -822,6 +822,14 @@ export default {
       const body = await request.json().catch(() => null);
       const { pwHash, sessionSecret } = await stub.getAuth();
       if (!sessionSecret) return json({ error: "unclaimed" }, 409);
+      // Once a passkey is enrolled, the typed fallback is DISABLED (a passkey
+      // must not coexist with a weaker door) — unless the operator explicitly
+      // re-enables it from the dashboard (SPARK_ALLOW_FALLBACK_LOGIN=true),
+      // which is the lost-device recovery path.
+      const havePasskeys = (await stub.getPasskeys()).length > 0;
+      const allowFallback = String(env.SPARK_ALLOW_FALLBACK_LOGIN).toLowerCase() === "true";
+      if (havePasskeys && !allowFallback)
+        return json({ error: "passkey required — fallback login is disabled after passkey enrollment" }, 401);
       const supplied = String(body?.password || "");
       // Legacy password if one was set, else the LIVE claim code (dashboard-
       // rotatable). Both accepted when both exist.
@@ -963,7 +971,9 @@ export default {
     if (!(await stub.isClaimed()))
       return html(setupPage(JSON.stringify(wordlist), Boolean(env.CLAIM_CODE || env.AUTH_TOKEN)));
     const { sessionSecret } = await stub.getAuth();
-    if (await verifySession(sessionSecret, readSessionCookie(request))) return html(CHAT_PAGE);
-    return html(LOGIN_PAGE);
+    const havePasskeys = (await stub.getPasskeys()).length > 0;
+    if (await verifySession(sessionSecret, readSessionCookie(request)))
+      return html(chatPage(!havePasskeys));
+    return html(loginPage(havePasskeys, String(env.SPARK_ALLOW_FALLBACK_LOGIN).toLowerCase() === "true"));
   },
 };
