@@ -234,14 +234,22 @@ const l402Body = async (response) => {
 // Confirmed-but-unclaimed L1 deposits across BOTH address families. Bounded
 // address scan (subrequest budget); serverless wallets never auto-claim, so
 // this is the discovery the user should never have to do by hand.
-async function scanPendingDeposits(wallet) {
+async function scanPendingDeposits(wallet, stub) {
   const pending = [];
+  // The SDK cannot enumerate USED single-use addresses (only unused ones), so
+  // a funded-but-unclaimed deposit can vanish from every SDK listing. The
+  // worker therefore remembers every address it hands out (config.issuedDepositAddresses)
+  // and scans those too.
+  const issued = ((await stub?.getConfig?.().catch(() => null))?.issuedDepositAddresses) ?? [];
   const families = [
-    { kind: "single-use", addrs: await wallet.getUnusedDepositAddresses().catch(() => []) },
+    { kind: "single-use", addrs: [...new Set([...issued, ...(await wallet.getUnusedDepositAddresses().catch(() => []))])] },
     { kind: "static", addrs: await wallet.queryStaticDepositAddresses().catch(() => []) },
   ];
+  const seen = new Set();
   for (const fam of families) {
-    for (const addr of (fam.addrs ?? []).slice(0, 8)) {
+    for (const addr of (fam.addrs ?? []).slice(0, 12)) {
+      if (seen.has(addr)) continue;
+      seen.add(addr);
       const utxos = await wallet.getUtxosForDepositAddress(addr, 20, 0, true).catch(() => []); // excludeClaimed
       for (const u of utxos ?? []) pending.push({ txid: u.txid, vout: u.vout, address: addr, kind: fam.kind });
     }
@@ -303,11 +311,20 @@ async function runTool(name, args, env, state) {
     }
     case "get_spark_address":
       return { sparkAddress: await wallet.getSparkAddress() };
-    case "get_deposit_address":
+    case "get_deposit_address": {
+      const depositAddress = await wallet.getSingleUseDepositAddress();
+      // Remember it: the SDK can't enumerate used single-use addresses, so
+      // this list is how claim_deposit finds funded deposits later.
+      try {
+        const cfg = (await state.stub.getConfig()) ?? {};
+        const issued = [...new Set([...(cfg.issuedDepositAddresses ?? []), depositAddress])].slice(-20);
+        await state.stub.setConfig({ issuedDepositAddresses: issued });
+      } catch { /* tracking is best-effort */ }
       return {
-        depositAddress: await wallet.getSingleUseDepositAddress(),
+        depositAddress,
         note: "single-use L1 address. Does NOT auto-claim: after ~3 confirmations run claim_deposit (no arguments — it finds the deposit itself, free for single-use).",
       };
+    }
     case "get_transfers": {
       const limit = Math.min(Math.max(1, Math.floor(Number(args.limit) || 10)), 20);
       const t = await wallet.getTransfers(limit, 0);
@@ -327,7 +344,7 @@ async function runTool(name, args, env, state) {
         note: "reusable L1 address; after 3 confirmations the deposit must be CLAIMED (list_pending_deposits, then claim_deposit)",
       };
     case "list_pending_deposits": {
-      const pending = await scanPendingDeposits(wallet);
+      const pending = await scanPendingDeposits(wallet, state.stub);
       return { pending, note: pending.length ? "claim with claim_deposit (no arguments needed)" : "nothing confirmed-and-unclaimed" };
     }
     case "claim_deposit": {
@@ -338,7 +355,7 @@ async function runTool(name, args, env, state) {
       // Free-claim every single-use deposit found; static ones fall through to
       // the quoted flow below.
       if (!txid) {
-        const pending = await scanPendingDeposits(wallet);
+        const pending = await scanPendingDeposits(wallet, state.stub);
         if (!pending.length) return { claimed: false, note: "no confirmed-and-unclaimed deposits found (deposits need 3 confirmations)" };
         const results = [];
         for (const p of pending.filter((x) => x.kind === "single-use")) {
