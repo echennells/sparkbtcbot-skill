@@ -222,21 +222,35 @@ img.qr{display:block;background:#fff;border-radius:8px;padding:8px;margin-top:8p
 ${PASSKEY_JS}
 const log = document.getElementById('log'), f = document.getElementById('f'),
       i = document.getElementById('i'), b = document.getElementById('b');
-const history = [];
-function add(cls, text){ const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
+// History persists in THIS BROWSER (localStorage) — reloads and re-logins keep
+// it; explicit logout wipes it (shared-machine hygiene). Never server-stored:
+// transcripts carry redemption codes and payment details.
+const LS_KEY = 'sb_chat_v1';
+let history = [], display = [];
+function persist(){ try { localStorage.setItem(LS_KEY, JSON.stringify({ history: history.slice(-60), display: display.slice(-200) })); } catch {} }
+function add(cls, text, opts){ const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; log.appendChild(d);
+  if (opts && opts.qr) { const img = document.createElement('img'); img.className='qr'; img.alt='QR'; img.src='/api/qr?d='+encodeURIComponent(opts.qr); d.appendChild(img); }
+  log.scrollTop = log.scrollHeight;
+  if (!(opts && opts.noSave)) { display.push({ cls, text, qr: opts && opts.qr || undefined }); persist(); }
+  return d; }
+try {
+  const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+  if (saved && Array.isArray(saved.display) && saved.display.length) {
+    history = Array.isArray(saved.history) ? saved.history : [];
+    for (const m of saved.display) { display.push(m); add(m.cls, m.text, { qr: m.qr, noSave: true }); }
+  }
+} catch {}
 // QR codes attach ONLY to receive-artifacts produced by tools this turn —
 // an address you're SENDING to must never get one (someone scanning it would
 // pay the recipient), so message text is never scanned.
 const QR_TOOLS = { get_spark_address: 'sparkAddress', create_lightning_invoice: 'encodedInvoice', get_deposit_address: 'depositAddress', get_static_deposit_address: 'depositAddress' };
 function addBot(text, toolEvents){
-  const d = add('bot', text);
   let data = null;
   for (const t of (toolEvents || [])) { const f = QR_TOOLS[t.tool]; if (f && t.result && typeof t.result[f] === 'string') data = t.result[f]; }
-  if (data) { const img = document.createElement('img'); img.className = 'qr'; img.alt = 'QR'; img.src = '/api/qr?d=' + encodeURIComponent(data); d.appendChild(img); log.scrollTop = log.scrollHeight; }
-  return d;
+  return add('bot', text, data ? { qr: data } : undefined);
 }
-add('bot', 'Hi! I\\'m your Spark wallet bot. Try: "what\\'s my balance?" or "give me a lightning invoice for 500 sats".');
-document.getElementById('out').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', {method:'POST'}); location.href = '/'; };
+if (!display.length) add('bot', 'Hi! I\\'m your Spark wallet bot. Try: "what\\'s my balance?" or "give me a lightning invoice for 500 sats".');
+document.getElementById('out').onclick = async (e) => { e.preventDefault(); try { localStorage.removeItem(LS_KEY); } catch {} await fetch('/api/logout', {method:'POST'}); location.href = '/'; };
 const pkLink = document.getElementById('pk');
 if (pkLink) pkLink.onclick = async (e) => {
   e.preventDefault();
