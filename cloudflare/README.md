@@ -85,12 +85,25 @@ wizard, then delete both secrets.
 
 ## Guardrails (enforced in code, not prompt)
 
-- `SPARK_MAX_SEND_SATS` (default 5000) per-transaction cap
-- `SPARK_MAX_LN_FEE_SATS` (default 50) Lightning fee cap
-- send/pay tools refuse without `confirm: true`, which the system prompt only
-  permits after an explicit user "yes" in the conversation
-- the seed is never readable: Worker secrets are write-only, and no tool
-  touches the mnemonic
+Spending limits are **opt-in** — nothing is capped until the operator sets a
+variable (a limit should be a choice a person makes, not a default they
+inherit):
+
+- `SPARK_MAX_SEND_SATS` — per-transaction ceiling, applies to sends, L402 and
+  purchases (unset = unlimited)
+- `SPARK_DAILY_BUDGET_SATS` — rolling 24h cumulative budget across ALL
+  outbound tools, the cap that bounds a loop of individually-legal spends
+  (unset = unlimited; enforced atomically in the Durable Object)
+- `SPARK_MAX_LN_FEE_SATS` — fixed Lightning fee ceiling; unset auto-scales to
+  max(25, 0.5% of the amount) — fee-gouging protection, never a purchase limit
+
+Always on regardless of configuration:
+
+- money-moving tools refuse without `confirm: true`, which the system prompt
+  only permits after an explicit user "yes" in the conversation (purchases
+  additionally require email consent)
+- merchant checkout invoices must match the pre-checkout quote within 2%
+- the seed is never readable: no tool touches the mnemonic
 
 ## Unilateral-exit backup (leaf-vault)
 

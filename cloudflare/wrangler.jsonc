@@ -21,13 +21,13 @@
     "bindings": [{ "name": "WALLET_DO", "class_name": "WalletDO" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WalletDO"] }],
+  // Spending limits are OPT-IN — add to vars to enable:
+  //   "SPARK_MAX_SEND_SATS": "5000"       per-transaction ceiling (sats)
+  //   "SPARK_DAILY_BUDGET_SATS": "21000"  rolling 24h cumulative budget
+  //   "SPARK_MAX_LN_FEE_SATS": "50"       fixed Lightning fee ceiling
+  //                                       (unset = auto: max(25, 0.5% of amount))
   "vars": {
     "SPARK_NETWORK": "MAINNET",
-    "MODEL": "z-ai/glm-5.2",
-    "SPARK_MAX_SEND_SATS": "5000",
-    "SPARK_MAX_LN_FEE_SATS": "50",
-    // Rolling 24h cumulative spend budget across ALL outbound tools — the cap
-    // that bounds a LOOP of individually-legal sends. "off" disables.
-    "SPARK_DAILY_BUDGET_SATS": "21000"
+    "MODEL": "z-ai/glm-5.2"
   }
 }
