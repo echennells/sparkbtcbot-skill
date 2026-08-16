@@ -732,7 +732,12 @@ async function chat(request, env, stub, ctx) {
           result = await runTool(name, args, env, state);
         } catch (e) {
           result = { error: String(e?.message ?? e).slice(0, 400) };
+          // Tool failures must reach telemetry, not just the model — an error
+          // only the LLM sees is invisible to every debugging session after it.
+          console.warn(`[tool] ${name} failed:`, String(e?.message ?? e).slice(0, 500));
         }
+        if (result && (result.error || result.refused))
+          console.log(`[tool] ${name} ${result.error ? "error" : "refused"}:`, String(result.error ?? result.refused).slice(0, 300));
         toolEvents.push({ tool: name, args, result });
         messages.push({ role: "tool", name, content: jsonSafe(result), tool_call_id: id });
       }
