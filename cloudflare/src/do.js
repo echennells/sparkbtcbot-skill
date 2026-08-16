@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
+const bytesToHexStr = (u8) => Array.from(u8, (b) => b.toString(16).padStart(2, "0")).join("");
+
 // Single-instance Durable Object ("primary") holding the wallet's claim
 // state: seed, password hash, session secret, and optional config. DO
 // storage is encrypted at rest and — like Worker secrets — unreadable from
@@ -44,6 +46,59 @@ export class WalletDO extends DurableObject {
     const config = { ...((await this.ctx.storage.get("config")) ?? {}), ...patch };
     await this.ctx.storage.put("config", config);
     return config;
+  }
+
+  // ---- spend ledger: rolling-window cumulative budget (ports lib/spend-ledger.js) ----
+  // Per-call caps can't stop a LOOP of individually-legal spends; this can.
+  // The DO makes check-then-record ATOMIC (single-threaded per object), which
+  // kills the race the Node lib documents. No HMAC signing here: DO storage
+  // sits inside the same trust boundary as the seed itself.
+
+  async reserveSpend({ sats, operation, budgetSats, windowMs }) {
+    const win = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : 24 * 3600 * 1000;
+    const now = Date.now();
+    const entries = ((await this.ctx.storage.get("spendLedger")) ?? []).filter((e) => e.ts > now - win);
+    const spent = entries.reduce((s, e) => s + e.sats, 0);
+    const budget = budgetSats == null ? NaN : Number(budgetSats);
+    const amount = Number(sats);
+    if (Number.isFinite(budget)) {
+      // Uncountable spends fail CLOSED when a budget is set.
+      if (!Number.isFinite(amount) || amount < 0) {
+        await this.ctx.storage.put("spendLedger", entries);
+        return { ok: false, spentSats: spent, budgetSats: budget, remainingSats: Math.max(0, budget - spent), reason: "spend amount is unreadable — refusing an uncountable spend against a budget" };
+      }
+      if (spent + amount > budget) {
+        await this.ctx.storage.put("spendLedger", entries);
+        return { ok: false, spentSats: spent, budgetSats: budget, remainingSats: Math.max(0, budget - spent), reason: `spending ${amount} sats would exceed the ${budget}-sat rolling ${Math.round(win / 3600000)}h budget (${spent} already spent)` };
+      }
+    }
+    const entry = { id: bytesToHexStr(crypto.getRandomValues(new Uint8Array(8))), ts: now, sats: Number.isFinite(amount) ? amount : 0, operation: String(operation ?? "spend") };
+    entries.push(entry);
+    await this.ctx.storage.put("spendLedger", entries);
+    return {
+      ok: true,
+      entryId: entry.id,
+      spentSats: spent,
+      budgetSats: Number.isFinite(budget) ? budget : null,
+      remainingSats: Number.isFinite(budget) ? budget - spent - entry.sats : null,
+    };
+  }
+
+  // Best-effort refund when the SDK call provably never moved money. If this
+  // fails the ledger overcounts — the safe direction.
+  async unrecordSpend(id) {
+    const entries = (await this.ctx.storage.get("spendLedger")) ?? [];
+    const kept = entries.filter((e) => e.id !== id);
+    if (kept.length !== entries.length) await this.ctx.storage.put("spendLedger", kept);
+  }
+
+  async spendStatus({ budgetSats, windowMs } = {}) {
+    const win = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : 24 * 3600 * 1000;
+    const now = Date.now();
+    const entries = ((await this.ctx.storage.get("spendLedger")) ?? []).filter((e) => e.ts > now - win);
+    const spent = entries.reduce((s, e) => s + e.sats, 0);
+    const budget = budgetSats == null ? null : Number(budgetSats);
+    return { spentSats: spent, budgetSats: budget, remainingSats: budget == null ? null : Math.max(0, budget - spent), windowHours: Math.round(win / 3600000), entryCount: entries.length };
   }
 
   // ---- passkeys: stored credentials + single-use ceremony challenges ----

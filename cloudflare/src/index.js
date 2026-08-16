@@ -202,6 +202,22 @@ async function initWallet(env, seed) {
   return init.wallet;
 }
 
+// Rolling-window budget (spend-ledger port). Default 21,000 sats/24h — a
+// bounded default loss beats an unbounded default; raise SPARK_DAILY_BUDGET_SATS
+// deliberately (or set it to "off" to disable, matching the Node lib's opt-in).
+function dailyBudget(env) {
+  const raw = env.SPARK_DAILY_BUDGET_SATS;
+  if (String(raw).toLowerCase() === "off") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 21000;
+}
+
+// Atomic check-and-record against the DO ledger. Returns { ok, entryId?, ... };
+// callers unrecord on provable non-spend failures.
+async function reserveSpend(env, stub, sats, operation) {
+  return stub.reserveSpend({ sats, operation, budgetSats: dailyBudget(env), windowMs: 24 * 3600 * 1000 });
+}
+
 async function runTool(name, args, env, state) {
   const maxSend = Number(env.SPARK_MAX_SEND_SATS || 5000);
   const maxLnFee = Number(env.SPARK_MAX_LN_FEE_SATS || 50);
@@ -219,7 +235,8 @@ async function runTool(name, args, env, state) {
   switch (name) {
     case "get_balance": {
       const b = await wallet.getBalance();
-      return { balanceSats: b.balance.toString() };
+      const budget = await state.stub?.spendStatus?.({ budgetSats: dailyBudget(env) }).catch(() => null);
+      return { balanceSats: b.balance.toString(), ...(budget?.budgetSats != null ? { dailyBudget: budget } : {}) };
     }
     case "get_spark_address":
       return { sparkAddress: await wallet.getSparkAddress() };
@@ -273,11 +290,20 @@ async function runTool(name, args, env, state) {
           refused: "confirm flag not set — show the user this quote and ask for an explicit yes",
           quote: { creditSats: quoted, maxFeeSats: maxFee, txid, vout },
         };
-      const res = await wallet.claimStaticDepositWithMaxFee({
-        transactionId: txid,
-        outputIndex: vout,
-        maxFee,
-      });
+      // The claim's FEE is the outbound spend (the credit is incoming).
+      const cr = await reserveSpend(env, state.stub, maxFee, "deposit-claim-fee");
+      if (!cr.ok) return { refused: cr.reason, budget: cr };
+      let res;
+      try {
+        res = await wallet.claimStaticDepositWithMaxFee({
+          transactionId: txid,
+          outputIndex: vout,
+          maxFee,
+        });
+      } catch (e) {
+        await state.stub?.unrecordSpend?.(cr.entryId).catch(() => {});
+        throw e;
+      }
       state.leafChanged = true; // leaves changed — refresh the exit backup after this chat
       return { claimed: true, creditSats: quoted, result: JSON.parse(jsonSafe(res)) };
     }
@@ -294,10 +320,23 @@ async function runTool(name, args, env, state) {
     case "pay_lightning_invoice": {
       if (args.confirm !== true)
         return { refused: "confirm flag not set — ask the user to confirm first" };
-      const res = await wallet.payLightningInvoice({
-        invoice: String(args.invoice),
-        maxFeeSats: maxLnFee,
-      });
+      // Budget the AMOUNT + worst-case fee; amountless invoices are uncountable
+      // and fail closed while a budget is set (spend-ledger semantics).
+      const invAmount = bolt11AmountSats(args.invoice);
+      if (invAmount == null && dailyBudget(env) != null)
+        return { refused: "invoice is amountless — cannot count it against the daily budget" };
+      const lr = await reserveSpend(env, state.stub, (invAmount ?? 0) + maxLnFee, "lightning");
+      if (!lr.ok) return { refused: lr.reason, budget: lr };
+      let res;
+      try {
+        res = await wallet.payLightningInvoice({
+          invoice: String(args.invoice),
+          maxFeeSats: maxLnFee,
+        });
+      } catch (e) {
+        await state.stub?.unrecordSpend?.(lr.entryId).catch(() => {});
+        throw e;
+      }
       state.leafChanged = true; // leaves moved — refresh the exit backup after this chat
       return { paid: true, result: JSON.parse(jsonSafe(res)) };
     }
@@ -338,7 +377,15 @@ async function runTool(name, args, env, state) {
       // Fee cap mirrors lib/fee-guards lightningFeeCap: max(25, 0.5%) — the 25
       // floor is a live-payment lesson (a 4,464-sat send needed a 25-sat fee).
       const feeCap = Math.max(25, Math.ceil((amountSats * 50) / 10_000));
-      const pay = await wallet.payLightningInvoice({ invoice: challenge.invoice, maxFeeSats: feeCap });
+      const l4r = await reserveSpend(env, state.stub, amountSats + feeCap, "l402");
+      if (!l4r.ok) return { refused: l4r.reason, budget: l4r };
+      let pay;
+      try {
+        pay = await wallet.payLightningInvoice({ invoice: challenge.invoice, maxFeeSats: feeCap });
+      } catch (e) {
+        await state.stub?.unrecordSpend?.(l4r.entryId).catch(() => {});
+        throw e;
+      }
       state.leafChanged = true;
       // The preimage is the auth secret — poll briefly if the payment is async,
       // and never return or log it.
@@ -364,10 +411,18 @@ async function runTool(name, args, env, state) {
       const amount = Math.floor(Number(args.amountSats));
       if (!(amount > 0) || amount > maxSend)
         return { refused: `amount must be 1..${maxSend} sats (hard cap)` };
-      const res = await wallet.transfer({
-        receiverSparkAddress: String(args.receiverSparkAddress),
-        amountSats: amount,
-      });
+      const sr = await reserveSpend(env, state.stub, amount, "spark-send");
+      if (!sr.ok) return { refused: sr.reason, budget: sr };
+      let res;
+      try {
+        res = await wallet.transfer({
+          receiverSparkAddress: String(args.receiverSparkAddress),
+          amountSats: amount,
+        });
+      } catch (e) {
+        await state.stub?.unrecordSpend?.(sr.entryId).catch(() => {});
+        throw e;
+      }
       state.leafChanged = true; // leaves moved — refresh the exit backup after this chat
       return { sent: true, result: JSON.parse(jsonSafe(res)) };
     }
@@ -384,7 +439,7 @@ Rules:
 - Before any send_spark or pay_lightning_invoice, restate amount + recipient and get an explicit "yes" from the user in this conversation; only then call the tool with confirm=true.
 - claim_deposit and pay_l402 also need confirmation: call them WITHOUT confirm first, show the user the quote, and only after an explicit "yes" call again with confirm=true.
 - L1 deposits: the single-use address (get_deposit_address) claims automatically after confirmation; the reusable static address (get_static_deposit_address) needs list_pending_deposits + claim_deposit.
-- Per-transaction hard caps are enforced in code; if a tool refuses, relay why.
+- Per-transaction hard caps AND a rolling 24h spending budget are enforced in code; if a tool refuses, relay why (get_balance shows the budget's remaining sats).
 - Be concise. Never invent balances or addresses — always use tools.
 - Report tool results EXACTLY as returned. Never fabricate transaction details, senders, fees, or amounts that a tool did not return. If you don't know something, say so.
 - You cannot access the seed phrase; never discuss revealing it.

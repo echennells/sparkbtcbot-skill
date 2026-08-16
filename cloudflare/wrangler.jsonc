@@ -25,6 +25,9 @@
     "SPARK_NETWORK": "MAINNET",
     "MODEL": "z-ai/glm-5.2",
     "SPARK_MAX_SEND_SATS": "5000",
-    "SPARK_MAX_LN_FEE_SATS": "50"
+    "SPARK_MAX_LN_FEE_SATS": "50",
+    // Rolling 24h cumulative spend budget across ALL outbound tools — the cap
+    // that bounds a LOOP of individually-legal sends. "off" disables.
+    "SPARK_DAILY_BUDGET_SATS": "21000"
   }
 }
