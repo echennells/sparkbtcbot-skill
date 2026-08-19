@@ -76,8 +76,9 @@ const instructions = await getSkillContent();
 
 // On-demand reference docs by name
 console.log(await listReferences());
-// → ['agent-class', 'architecture', 'encrypted-seed', 'extras', 'l402',
-//    'lightning', 'recovery-scenarios', 'security', 'spark-invoices',
+// → ['agent-class', 'architecture', 'bitrefill', 'cryptorefills',
+//    'encrypted-seed', 'extras', 'l402', 'lightning', 'merchant-spending',
+//    'nadanada', 'recovery-scenarios', 'security', 'spark-invoices',
 //    'tokens', 'unilateral-exit', 'wallet']
 const l402Doc = await getReference("l402");
 ```
@@ -100,6 +101,8 @@ const vault = enableLeafVault(wallet); // auto-refreshing recovery bundle
 // ... later: await vault.dispose();   // flushes a final snapshot if needed
 ```
 
+(The SDK-free persistence/validation core behind it is also exported directly as `sparkbtcbot-skill/leaf-vault/core`, for code that handles bundles without a wallet instance.)
+
 The package also ships the setup/backup CLIs (0.4.2+), so npm consumers and Claude Code plugin users never need the cloned repo — install the package into your project, then the commands resolve **locally** (your lockfile governs what runs; no unpinned registry fetch):
 
 ```bash
@@ -117,7 +120,7 @@ npm exec --no -- sparkbtcbot-leaf-vault verify
 git clone https://github.com/echennells/sparkbtcbot.git ~/sparkbtcbot
 cd ~/sparkbtcbot
 npm ci     # lockfile-exact install; fails loudly on any drift
-npm test   # 368 offline unit tests — verifies the resolved tree matches the one we live-tested
+npm test   # offline unit suite — verifies the resolved tree matches the one we live-tested
 ```
 
 Don't clone directly into `~/.claude/skills/` — this repo nests the skill at `skills/sparkbtcbot/`, so the clone would put `SKILL.md` a level too deep and Claude Code won't discover it. If you want the clone to double as a personal skill (instead of the plugin install), symlink the inner skill directory:
@@ -166,6 +169,8 @@ The mnemonic is **never** stored in plaintext anywhere the runtime reads. `npm r
 | `token-operations.js` | `npm run example:tokens` | BTKN token balances, transfers, batch operations |
 | `l402-paywalls.js` | `npm run example:l402` | Access L402 pay-per-request APIs via Lightning |
 | `spark-agent.js` | `npm run example:agent` | Complete `SparkAgent` class with all capabilities |
+
+The `npm run` shortcuts exist only in the cloned repo. npm-package consumers get the same scripts under `node_modules/sparkbtcbot-skill/skills/sparkbtcbot/scripts/` — run them directly, e.g. `node node_modules/sparkbtcbot-skill/skills/sparkbtcbot/scripts/balance-and-deposits.js`.
 
 ## Environment Variables
 

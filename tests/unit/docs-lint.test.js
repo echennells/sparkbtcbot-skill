@@ -51,4 +51,30 @@ describe("docs lint", () => {
       expect(/npm test/.test(b), "clone block skips the npm test verification step").toBe(true);
     }
   });
+
+  it("every file README links relatively is shipped in the npm package", async () => {
+    // AGENTS.md is linked as required pre-flight reading for AI agents but was
+    // missing from `files` — npm consumers got a 404 on the doc that carries
+    // the never-echo-passphrase rules. Any ./-relative README link must resolve
+    // inside the published tarball.
+    const pkg = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
+    const readme = await readFile(join(ROOT, "README.md"), "utf8");
+    const links = [...readme.matchAll(/\]\(\.\/([^)#]+)\)/g)].map((m) => m[1]);
+    expect(links.length).toBeGreaterThan(0);
+    for (const rel of links) {
+      const shipped = pkg.files.some((f) => (f.endsWith("/") ? rel.startsWith(f) : rel === f));
+      expect(shipped, `README links ./${rel} but package.json "files" doesn't ship it — npm consumers get a broken link`).toBe(true);
+    }
+  });
+
+  it("README's listReferences() example names every shipped reference", async () => {
+    // The example drifted to 12 names while 16 shipped — the four missing ones
+    // were the merchant-purchase docs for a headline capability.
+    const refDir = join(ROOT, "skills/sparkbtcbot/references");
+    const names = (await readdir(refDir)).filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, ""));
+    const readme = await readFile(join(ROOT, "README.md"), "utf8");
+    for (const name of names) {
+      expect(readme.includes(`'${name}'`), `references/${name}.md exists but the README listReferences() example doesn't list '${name}'`).toBe(true);
+    }
+  });
 });
