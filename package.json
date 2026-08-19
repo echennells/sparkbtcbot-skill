@@ -80,7 +80,9 @@
     "test:integration": "vitest run tests/integration --exclude tests/integration/funded",
     "test:funded": "vitest run tests/integration/funded",
     "test:all": "vitest run",
-    "reveal-mnemonic": "node skills/sparkbtcbot/scripts/reveal-mnemonic.js"
+    "reveal-mnemonic": "node skills/sparkbtcbot/scripts/reveal-mnemonic.js",
+    "set-policy": "node skills/sparkbtcbot/scripts/set-policy.js",
+    "reset-ledger": "node skills/sparkbtcbot/scripts/reset-ledger.js"
   },
   "dependencies": {
     "@buildonspark/issuer-sdk": "0.1.45",

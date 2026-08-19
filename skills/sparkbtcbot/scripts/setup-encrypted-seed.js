@@ -184,6 +184,19 @@ async function main() {
     stdout.write("\nNext: remove SPARK_MNEMONIC from .env and replace with SPARK_PASSPHRASE.\n");
   }
 
+  if (!env.SPARK_PASSPHRASE) {
+    // Prompted passphrase: it now exists nowhere on disk, by design — but the
+    // runtime can't decrypt the seed without it, and the first live install
+    // test stranded exactly here (setup run from a throwaway dir, passphrase
+    // never persisted). Say where it belongs: the RUNTIME's environment.
+    stdout.write("\n=== persist the passphrase ===\n");
+    stdout.write("The seed file is useless without the passphrase you just chose, and it\n");
+    stdout.write("was NOT saved anywhere. The wallet process reads SPARK_PASSPHRASE from\n");
+    stdout.write("its environment at boot — put it in the .env of the project that will\n");
+    stdout.write("RUN the wallet (dotenv loads the .env in the process's own directory).\n");
+    stdout.write("Do not put it in ~/.spark next to the seed, and not in a temp dir.\n");
+  }
+
   stdout.write("\nIn your app:\n");
   stdout.write("  import { loadMnemonicFromEnv } from \"./lib/encrypted-seed.js\";\n");
   stdout.write("  const mnemonic = await loadMnemonicFromEnv();\n");

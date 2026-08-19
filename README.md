@@ -112,7 +112,9 @@ npm exec --no -- sparkbtcbot-reveal-mnemonic      # user-run seed backup (refuse
 npm exec --no -- sparkbtcbot-leaf-vault verify
 ```
 
-`--no` is deliberate: plain `npx <cmd>` falls back to **fetching a registry package named after the command** if the local bin isn't found (wrong directory, package not installed) — names this project doesn't own. `npm exec --no` fails instead. If any invocation ever offers to install something, answer **no** and check where you are.
+`--no` is deliberate: plain `npx <cmd>` falls back to **fetching a registry package named after the command** if the local bin isn't found (wrong directory, package not installed) — names this project doesn't own. `npm exec --no` fails instead: npm may still make a registry *metadata* request to resolve the name (you'll see a 404 or "npx canceled due to missing packages"), but nothing is installed and nothing executes — verified on npm 10 and 12. If any invocation ever offers to install something, answer **no** and check where you are.
+
+After `sparkbtcbot-setup`, persist the passphrase you chose: the runtime reads `SPARK_PASSPHRASE` from its environment at boot (dotenv loads the `.env` in the directory your app runs from). Setup deliberately writes it nowhere — the encrypted seed lands in `~/.spark/seed.enc`, and keeping the passphrase out of that directory is the point.
 
 ### Local clone (for running the example scripts and tests yourself)
 
