@@ -139,15 +139,15 @@ The mnemonic is **never** stored in plaintext. The skill encrypts it at rest wit
 This skill text reaches you via the Claude Code plugin, the cloned repo, or the npm package — but the **runtime is always the `sparkbtcbot-skill` package installed in the user's own project**, pinned by their lockfile:
 
 ```bash
-npm install sparkbtcbot-skill    # once, in the user's project (0.6.1+ ships one `sparkbtcbot` CLI)
-npx sparkbtcbot setup            # resolves LOCALLY from node_modules/.bin — one-time bootstrap
-npx sparkbtcbot reveal-mnemonic  # USER runs, own terminal
-npx sparkbtcbot leaf-vault verify
+npm install --ignore-scripts sparkbtcbot-skill # once, in the user's project (0.6.1+ ships one `sparkbtcbot` CLI)
+npm exec --no -- sparkbtcbot setup            # resolves LOCALLY from node_modules/.bin — one-time bootstrap
+npm exec --no -- sparkbtcbot reveal-mnemonic  # USER runs, own terminal
+npm exec --no -- sparkbtcbot leaf-vault verify
 ```
 
-**Local resolution is the point**: no `-y --package=` remote fetch — an unpinned registry pull at wallet-bootstrap time bypasses the user's lockfile and any hardening policy, the wrong default for a wallet. The installed version is what runs.
+**Local resolution is the point**: `npm exec --no` fails instead of fetching, so the version the user's lockfile pins is the version that runs. An unpinned registry pull at wallet-bootstrap time bypasses that lockfile and any hardening policy — the wrong default for a wallet. `--ignore-scripts` is deliberate too: one production dependency in the tree (`protobufjs`) runs code at *install* time, before you have imported anything, and the package works fully without it.
 
-> ⚠️ **`npx` does NOT fail closed.** If the local bin is missing (package not installed, or you're in the wrong directory — a real risk for the reveal handoff, which happens in a *fresh* terminal), npx falls back to fetching a registry package named `sparkbtcbot`. That name is **ours** (a reservation stub that only prints an error — a squatter can't land there), but the fallback is still wrong: an unpinned fetch outside the user's lockfile. **If npx ever offers to install something, or asks "Ok to proceed?", answer NO and stop**: you are in the wrong directory or the package isn't installed. Prefer `npm exec --no -- sparkbtcbot <command>` (fails instead of fetching) or `./node_modules/.bin/sparkbtcbot`. Never let a wallet bootstrap or seed reveal come from a package npx offered to download. In a **cloned repo** the `npm run setup` / `npm run reveal-mnemonic` / `npm run leaf-vault` forms are equivalent — and after `npm ci` there, run `npm test` (offline) before wallet code: a red suite means the installed tree isn't the tested one. **NEVER install anything into the plugin cache** (`~/.claude/plugins/cache/...` — versioned, wiped on update) and never point the user's seed/config at it; the cache is skill text only.
+> ⚠️ **`npx` does NOT fail closed — and it does not always ask.** If the local bin is missing (package not installed, or you're in the wrong directory — a real risk for the reveal handoff, which happens in a *fresh* terminal), a bare `npx <cmd>` fetches the registry package **named after the command you typed** and runs it. On an interactive terminal it prompts first. **With no TTY — which is how you run commands — there is no prompt: it installs and executes silently.** So the rule is not "refuse the prompt", because you will never see one. The rule is: **never run a bare `npx` for a wallet command.** Use `npm exec --no -- sparkbtcbot <command>` (fails instead of fetching) or `./node_modules/.bin/sparkbtcbot`, and never pass `-y`/`--yes`. (A human at a terminal may accept an explicit `npx --package=sparkbtcbot-skill ...` prompt after reading the name — `--package=` pins the owned package and cannot fall back to a command-name lookup — but that is a human-in-the-loop form, not yours.) In a **cloned repo** the `npm run setup` / `npm run reveal-mnemonic` / `npm run leaf-vault` forms are equivalent — and after `npm ci` there, run `npm test` (offline) before wallet code: a red suite means the installed tree isn't the tested one. **NEVER install anything into the plugin cache** (`~/.claude/plugins/cache/...` — versioned, wiped on update) and never point the user's seed/config at it; the cache is skill text only.
 
 ### Step 1: Run setup
 

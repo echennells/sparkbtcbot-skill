@@ -106,14 +106,18 @@ const vault = enableLeafVault(wallet); // auto-refreshing recovery bundle
 The package also ships a single `sparkbtcbot` CLI (0.6.1+; subcommands replaced the five per-command bins), so npm consumers and Claude Code plugin users never need the cloned repo — install the package into your project, then the command resolves **locally** (your lockfile governs what runs; no unpinned registry fetch):
 
 ```bash
-npm install sparkbtcbot-skill                     # once, in your project
+npm install --ignore-scripts sparkbtcbot-skill    # once, in your project
 npm exec --no -- sparkbtcbot setup                # one-time wallet bootstrap
 npm exec --no -- sparkbtcbot reveal-mnemonic      # user-run seed backup (refuses non-interactive)
 npm exec --no -- sparkbtcbot leaf-vault verify
 npm exec --no -- sparkbtcbot help                 # full subcommand list
 ```
 
-`--no` is deliberate: plain `npx sparkbtcbot ...` falls back to **fetching the registry package named `sparkbtcbot`** if the local bin isn't found (wrong directory, package not installed). Since 0.6.1 that name is project-owned — a reservation stub that only prints an error — so even the fallback can't run a stranger's code; before that, the five per-command bin names were unregistered and squattable. `npm exec --no` remains the right form: it fails instead of fetching (npm may still make a registry *metadata* request — you'll see a 404 or "npx canceled due to missing packages" — but nothing is installed and nothing executes; verified on npm 10 and 12). If any invocation ever offers to install something, answer **no** and check where you are.
+`--no` is deliberate: plain `npx sparkbtcbot ...` falls back to **fetching the registry package named after the command you typed** if the local bin isn't found (wrong directory, package not installed). Since 0.6.1 the name `sparkbtcbot` is project-owned — a reservation stub that only prints an error — so even that fallback can't run a stranger's code; before the 0.6.0 collapse, the five per-command bin names were five separate unregistered names, and they remain decommissioned and unclaimed (see [SECURITY.md](./SECURITY.md)). `npm exec --no` is the right form because it fails instead of fetching (npm may still make a registry *metadata* request — you'll see a 404 or "npx canceled due to missing packages" — but nothing is installed and nothing executes; verified on npm 10 and 12).
+
+Do not rely on refusing npx's install prompt: **npx only prompts on an interactive terminal.** With no TTY — a CI job, a script, or an AI agent running commands for you — it installs and executes silently. That is why the safe forms are `npm exec --no` and `./node_modules/.bin/sparkbtcbot` rather than a rule about answering "no".
+
+`--ignore-scripts` is deliberate too: one production dependency (`protobufjs`) runs code at install time, before your code imports anything. The package and the Spark SDK both work fully without it. In a project that already has a lockfile, prefer `npm ci`.
 
 After `sparkbtcbot setup`, persist the passphrase you chose: the runtime reads `SPARK_PASSPHRASE` from its environment at boot (dotenv loads the `.env` in the directory your app runs from). Setup deliberately writes it nowhere — the encrypted seed lands in `~/.spark/seed.enc`, and keeping the passphrase out of that directory is the point.
 

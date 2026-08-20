@@ -46,13 +46,16 @@ conversation transcript or shell history is identical to a leak from disk.
   TTY-gated operator ceremonies: one seals/loosens the seed-bound spending budget, the other
   resets the signed spend window. They prompt for the passphrase and never read it from `.env`.
   Tell the user to run them in their own terminal.
-- **If `npx` ever offers to install a package, answer NO and stop.** `npx sparkbtcbot ...` does
-  not fail closed: when the local bin is missing (wrong directory, package not installed) it
-  fetches the registry package named `sparkbtcbot`. That name is project-owned (a reservation
-  stub that only prints an error), so a squatter can't land there — but the fetch is still
-  unpinned and outside the lockfile. Use `npm exec --no -- sparkbtcbot <cmd>` (fails instead of
-  fetching) or `./node_modules/.bin/sparkbtcbot`. A wallet bootstrap or seed reveal must never
-  come from a package npx offered to download.
+- **Never run a bare `npx` for a wallet command.** `npx <cmd>` does not fail closed: when the local
+  bin is missing (wrong directory, package not installed) it fetches the registry package *named
+  after the command you typed* and runs it. Do not rely on refusing the install prompt — **you
+  will not get one.** npx only prompts on an interactive terminal; with no TTY, which is how you
+  run commands, it installs and executes silently. Use `npm exec --no -- sparkbtcbot <cmd>` (fails
+  instead of fetching) or `./node_modules/.bin/sparkbtcbot`, and never pass `-y`/`--yes`. A wallet
+  bootstrap or seed reveal must never come from a package npx fetched.
+- **Install with `npm install --ignore-scripts sparkbtcbot-skill`.** One production dependency
+  (`protobufjs`) executes code at install time, before anything is imported; the package works
+  fully without it. Prefer `npm ci` in a project that already has a lockfile.
 - **Never commit `.env` or `~/.spark/seed.enc`.** `.env` must be in `.gitignore`; the seed file
   is mode 0600 and must stay out of images/backups that travel with the passphrase.
 - **Use a dedicated wallet with limited funds.** There are no server-enforced spending caps on

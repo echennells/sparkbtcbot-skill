@@ -17,7 +17,7 @@ You should expect an acknowledgement within 7 days. I'll work with you on a fix 
 
 In scope:
 
-- The npm package `sparkbtcbot` — encryption helpers (`lib/encrypted-seed.js`), the skill content shipped to LLM agents, the example scripts in `skills/sparkbtcbot/scripts/`.
+- The npm package `sparkbtcbot-skill` — encryption helpers (`lib/encrypted-seed.js`), the skill content shipped to LLM agents, the example scripts in `skills/sparkbtcbot/scripts/`. (The `sparkbtcbot` package is only the name-reservation stub described below; it contains no wallet code.)
 - Anything that could cause a mnemonic, passphrase, or decrypted seed to leak to disk, logs, network, or process output where the skill's own docs say it won't.
 - Anything that could cause an agent following the skill's instructions to send funds to an address other than the one the user/code specified.
 
@@ -25,7 +25,6 @@ Out of scope:
 
 - Vulnerabilities in `@buildonspark/spark-sdk` or other upstream dependencies — report those to the respective project. (If a dependency issue is being amplified by how the skill uses it, that *is* in scope.)
 - Spark protocol or Signing Operator issues — report to the Spark team.
-- The separate `sparkbtcbot-proxy` project — it has its own repo and security contact.
 - Social engineering, phishing, or attacks that require the user's passphrase to already be compromised.
 
 ## What the Threat Model Assumes
@@ -36,6 +35,23 @@ The skill is built around two assumptions; issues that violate either are in sco
 2. The runtime never writes the plaintext mnemonic, passphrase, or decrypted seed to disk, logs, stdout, or any file the agent reads back into its context.
 
 See `skills/sparkbtcbot/references/encrypted-seed.md` for the full threat model.
+
+## Registry Name Reservations
+
+`npx <cmd>` resolves the string you type as an npm package name, so any command name this project
+has ever documented is a potential landing spot for a squatter if it is unregistered. The current
+CLI is a single bin, `sparkbtcbot`, and that npm name is **owned by this project** — the
+`stub/sparkbtcbot/` reservation package, which only prints an error and exits 1. A
+wrong-directory `npx sparkbtcbot ...` therefore lands on our code.
+
+The five per-command bins retired in 0.6.0 — `sparkbtcbot-setup`, `sparkbtcbot-reveal-mnemonic`,
+`sparkbtcbot-leaf-vault`, `sparkbtcbot-set-policy`, `sparkbtcbot-reset-ledger` — are
+**decommissioned and deliberately NOT claimed on npm.** They are not covered by the `sparkbtcbot`
+stub: npx resolves each string as its own package name. This is a considered decision, not an
+oversight — no living doc emits those names (enforced by the `docs-lint` test suite, which fails
+the build if one reappears), so the remaining exposure is someone typing a retired name from
+memory or a stale third-party copy. If a future change makes those names reachable again, claim
+them rather than assuming the single stub covers them.
 
 ## Supported Versions
 

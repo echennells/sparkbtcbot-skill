@@ -54,7 +54,11 @@ export async function main() {
     stdout.write(createRequire(import.meta.url)("../../../package.json").version + "\n");
     exit(0);
   }
-  const entry = COMMANDS[cmd];
+  // hasOwn, not COMMANDS[cmd]: a plain-object lookup walks the prototype chain,
+  // so `sparkbtcbot constructor` / `toString` / `__proto__` returned a truthy
+  // non-entry and fell through to `import(undefined)` — a crash instead of the
+  // usage message, in the one gate that promises no fall-through.
+  const entry = Object.hasOwn(COMMANDS, cmd) ? COMMANDS[cmd] : undefined;
   if (!entry) {
     stderr.write(`sparkbtcbot: unknown command "${cmd}"\n\n` + usage());
     exit(2);
