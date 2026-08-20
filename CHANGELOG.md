@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.2 — 2026-08-20
+
+### Security
+
+- **The npx rule agents were given could not be followed: there is no prompt to refuse.** Since 0.5.0 the load-bearing mitigation against npx's registry fallback has been "if npx offers to install something, answer NO and stop" — carried in SKILL.md, AGENTS.md and README. Verified against npm 11: **npx only prompts on an interactive TTY.** With no TTY — a CI job, a script, or an AI agent running commands through a tool call, which is the context SKILL.md and AGENTS.md exist for — npx installs the fetched package and executes it *silently*, with nothing displayed and nothing to decline. The rule protected an interactive human and no one else, while reading like general protection. Replaced with one that holds without a prompt: **never run a bare `npx` for a wallet command** — use `npm exec --no -- sparkbtcbot <command>` (fails instead of fetching) or `./node_modules/.bin/sparkbtcbot`, and never pass `-y`/`--yes`. The pinned `npx --package=sparkbtcbot-skill ...` form is documented as a human-at-a-terminal option and explicitly not offered to agents: `--package=` names the owned package outright and cannot fall back to a command-name lookup (an unknown subcommand fails `command not found` rather than fetching a squattable string), but it is still an unpinned fetch outside the lockfile.
+
+- **Install guidance now uses `--ignore-scripts`.** One production dependency in the tree (`protobufjs`) executes code at `npm install` time, before the consumer's code has imported anything — the npm supply-chain footgun with the largest blast radius here, since it runs on the developer's machine with the agent's privileges rather than merely risking wallet funds. Verified against 0.6.1 that the flag costs nothing: the CLI resolves and runs, and both `sparkbtcbot-skill` (37 exports) and `@buildonspark/spark-sdk` (161 exports) import cleanly without install scripts. `npm ci` is recommended where a lockfile already exists.
+
+- **`cli.js` argument gate no longer falls through on inherited `Object` properties.** The dispatcher looked up `COMMANDS[cmd]`, which walks the prototype chain, so `sparkbtcbot constructor`, `toString`, `valueOf` and `__proto__` resolved to a truthy non-entry and reached `import(undefined)` — a stack trace instead of the usage message, in the one gate whose own comment promises that an unknown command "cannot fall through to anything." Now `Object.hasOwn(COMMANDS, cmd)`. Not exploitable (nothing executed, exit stayed non-zero), but it was the 0.4.3 fall-through class in miniature.
+
+### Changed
+
+- **`SECURITY.md` ships in the npm tarball and documents the registry-name reservations.** A new section states that the current CLI name `sparkbtcbot` is project-owned (the `stub/sparkbtcbot/` reservation package) and that the five bins retired in 0.6.0 are **decommissioned and deliberately unclaimed** — npx resolves each string as its own package name, so the single stub does not cover them. Written down because the opposite assumption ("the 0.6.0 collapse handled it") is the natural one and is wrong. The Scope section also said the package was `sparkbtcbot`; publishing the reservation stub made that name resolve to different code, so it now reads `sparkbtcbot-skill`. Dropped the `sparkbtcbot-proxy` line that the two scrub commits missed. `docs-lint` caught that the new README link would 404 for npm consumers, hence the `files` entry.
+
 ## 0.6.1 — 2026-08-20
 
 Same code as 0.6.0. This release exists only to restore build provenance.
