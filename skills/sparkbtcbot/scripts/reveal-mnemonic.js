@@ -28,14 +28,14 @@ import { promptStderr } from "./prompt.js";
 
 const SEED_PATH = env.SPARK_SEED_PATH || DEFAULT_SEED_PATH;
 
-async function main() {
+export async function main() {
   // Arg gate FIRST — before the TTY gate, so `--help` answers even when piped
   // (usage text holds no secrets). This CLI's default action reveals the seed
   // phrase, so any argument other than -h/--help fails closed with usage: a
   // typo'd flag must never fall through to a reveal.
   const args = process.argv.slice(2);
   const usage =
-    "Usage: sparkbtcbot-reveal-mnemonic\n\n" +
+    "Usage: sparkbtcbot reveal-mnemonic\n\n" +
     "Decrypts the seed file and displays the mnemonic ONCE on a temporary screen\n" +
     "(alternate buffer where the terminal supports it — wiped when you continue), for the human\n" +
     "operator to copy to an offline backup. Takes no arguments. Refuses to run without a\n" +
@@ -58,7 +58,8 @@ async function main() {
     stderr.write(
       "reveal-mnemonic: refusing to print your seed phrase to a non-interactive session.\n" +
       "This is almost always an AI agent capturing output. Run it yourself, in your\n" +
-      "own terminal:  npm run reveal-mnemonic\n",
+      "own terminal:  npm run reveal-mnemonic  (cloned repo)\n" +
+      "          or:  npm exec --no -- sparkbtcbot reveal-mnemonic  (installed package)\n",
     );
     exit(3);
   }

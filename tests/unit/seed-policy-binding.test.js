@@ -162,7 +162,7 @@ describe("policy CLIs are operator ceremonies (TTY-gated, arg-gated)", () => {
     it(`${script}: --help exits 0 with usage; unknown arg exits 2; piped run refuses (exit 3)`, async () => {
       const help = await exec(script, ["--help"]);
       expect(help.code).toBe(0);
-      expect(help.stdout).toMatch(/Usage: sparkbtcbot-/);
+      expect(help.stdout).toMatch(/Usage: sparkbtcbot /);
       const bad = await exec(script, ["--force"]);
       expect(bad.code).toBe(2);
       // piped stdio + a canned "yes" must NOT drive the ceremony

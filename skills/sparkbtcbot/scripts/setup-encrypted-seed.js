@@ -84,7 +84,7 @@ async function getMnemonicSource() {
 // probing `--help` for usage used to silently bootstrap a real (unbacked)
 // MAINNET wallet. --help/-h prints usage and exits; anything unknown fails
 // closed with usage on stderr.
-const USAGE = `Usage: sparkbtcbot-setup [--import]
+const USAGE = `Usage: sparkbtcbot setup [--import]
 
 One-time wallet bootstrap: generates (or imports) a BIP39 mnemonic and encrypts
 it at rest to ${DEFAULT_SEED_PATH} (override: SPARK_SEED_PATH). Refuses to
@@ -113,7 +113,7 @@ function gateArgs() {
   }
 }
 
-async function main() {
+export async function main() {
   gateArgs();
   if (existsSync(SEED_PATH)) {
     err(`Encrypted seed already exists at ${SEED_PATH}.`);
@@ -177,7 +177,8 @@ async function main() {
     stdout.write("Your 12-word seed is encrypted in the seed file above. No plaintext\n");
     stdout.write("copy is written to disk. To see the words for offline backup, run this\n");
     stdout.write("in YOUR OWN terminal (not via an agent — it prints your seed phrase):\n\n");
-    stdout.write("  npm run reveal-mnemonic\n\n");
+    stdout.write("  npm run reveal-mnemonic                        (cloned repo)\n");
+    stdout.write("  npm exec --no -- sparkbtcbot reveal-mnemonic   (installed package)\n\n");
     stdout.write("Copy the words to an offline backup (paper / hardware seed backup).\n");
     stdout.write("This is the ONLY recovery path — without it, a lost seed file = lost wallet.\n");
   } else if (source === "env") {

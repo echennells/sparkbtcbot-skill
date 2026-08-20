@@ -39,6 +39,7 @@ skills/
       unilateral-exit.md              # The leaf-vault backup + Blink's exit tool
       recovery-scenarios.md           # Recovery properties (staleness, justice, economics)
     scripts/                          # Runnable example scripts
+      cli.js                          # `sparkbtcbot <command>` — the single published bin (dispatcher)
       setup-encrypted-seed.js         # `npm run setup` — one-time bootstrap
       leaf-vault.js                   # snapshotLeafVault / verifyVault / enableLeafVault (library)
       leaf-vault-cli.js               # `npm run leaf-vault [-- verify]` — snapshot/verify CLI

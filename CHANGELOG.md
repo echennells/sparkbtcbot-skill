@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 — 2026-08-20
+
+### Security
+
+- **One CLI, and its name is ours: the five per-command bins collapse into a single `sparkbtcbot <command>` dispatcher.** The 0.4.x–0.5.x bins (`sparkbtcbot-setup`, `sparkbtcbot-reveal-mnemonic`, `sparkbtcbot-leaf-vault`, `sparkbtcbot-set-policy`, `sparkbtcbot-reset-ledger`) were five *unregistered* npm names — each a separate landing spot for npx's registry fallback when the local bin is missing, at wallet-bootstrap or seed-reveal time. The single bin is named `sparkbtcbot`, and a new in-repo **name-reservation stub** (`stub/sparkbtcbot/`, published separately to npm) owns that name on the registry: a wrong-directory `npx sparkbtcbot ...` now lands on project-owned code that prints where you went wrong and exits 1 — never a squatter's code. The dispatcher also gives the ceremonies **one argument gate with no default action** (the 0.4.3 `--help`-minted-a-wallet class of bug can't recur per-script), `sparkbtcbot` with no arguments prints the subcommand list instead of hitting the registry with a half-remembered name, and every command module is now **inert on import** with an exported `main()` — `set-policy`, `reset-ledger`, and `leaf-vault` previously executed at top level on import. Old invocations migrate mechanically: `npm exec --no -- sparkbtcbot-setup` → `npm exec --no -- sparkbtcbot setup`. The `npm run` script names in the cloned repo are unchanged. **Breaking:** the five old bin names are gone; docs-lint now fails any living doc that resurrects one.
+
+### Changed
+
+- Docs, in-code error messages (`spend-ledger`, `spark-agent`), evals, and tests all speak the `sparkbtcbot <command>` form; README/SKILL.md/AGENTS.md npx guidance updated for the owned-name fallback (the "answer NO to any install offer" rule is unchanged — the fallback landing is now safe, but it is still an unpinned fetch outside your lockfile).
+
 ## 0.5.0 — 2026-08-17
 
 ### Security

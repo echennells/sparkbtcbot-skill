@@ -67,6 +67,22 @@ describe("docs lint", () => {
     }
   });
 
+  it("no living doc references the retired per-command bins", async () => {
+    // 0.6.0 collapsed five bins (sparkbtcbot-setup, ...) into one `sparkbtcbot`
+    // dispatcher whose name matches a registry package we own. The old names
+    // are unregistered registry strings — a doc that resurrects one recreates
+    // the typosquat landing spot. (CHANGELOG is history and exempt.)
+    const RETIRED = ["sparkbtcbot-setup", "sparkbtcbot-reveal-mnemonic", "sparkbtcbot-leaf-vault", "sparkbtcbot-set-policy", "sparkbtcbot-reset-ledger"];
+    const refDir = join(ROOT, "skills/sparkbtcbot/references");
+    const refs = (await readdir(refDir)).filter((f) => f.endsWith(".md")).map((f) => join("skills/sparkbtcbot/references", f));
+    for (const rel of [...DOCS, ...refs, "skills/sparkbtcbot/evals/evals.json"]) {
+      const text = await readFile(join(ROOT, rel), "utf8");
+      for (const name of RETIRED) {
+        expect(text.includes(name), `${rel} references retired bin ${name} — use \`sparkbtcbot ${name.replace("sparkbtcbot-", "")}\``).toBe(false);
+      }
+    }
+  });
+
   it("README's listReferences() example names every shipped reference", async () => {
     // The example drifted to 12 names while 16 shipped — the four missing ones
     // were the merchant-purchase docs for a headline capability.

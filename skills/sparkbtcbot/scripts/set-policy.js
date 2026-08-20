@@ -17,12 +17,14 @@
 // refuses to be the convenient path.
 import "dotenv/config";
 import { stdin, stdout, stderr, exit, env } from "node:process";
+import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
 import { loadSeedPayload, saveEncryptedMnemonic, deriveLedgerHmacKey, DEFAULT_SEED_PATH, MIN_PASSPHRASE_CHARS } from "../../../lib/encrypted-seed.js";
 import { initSignedLedger, DEFAULT_SPEND_LEDGER_PATH } from "../../../lib/spend-ledger.js";
 import { promptStderr } from "./prompt.js";
 
 const USAGE =
-  "Usage: sparkbtcbot-set-policy\n\n" +
+  "Usage: sparkbtcbot set-policy\n\n" +
   "Interactively bind, change, or remove the seed-bound daily spending budget.\n" +
   "Decrypts seed.enc (prompts for the passphrase — never read from .env), shows\n" +
   "the current policy,\n" +
@@ -32,21 +34,23 @@ const USAGE =
   "to run without a real interactive terminal — this is an operator ceremony,\n" +
   "not an agent command.\n\nEnv: SPARK_SEED_PATH, SPARK_SPEND_LEDGER_PATH.\n";
 
-{
-  const args = process.argv.slice(2);
-  if (args.includes("--help") || args.includes("-h")) { stdout.write(USAGE); exit(0); }
-  if (args.length) { stderr.write(`set-policy: unknown argument(s): ${args.join(" ")}\n\n` + USAGE); exit(2); }
-}
+export async function main() {
+  // Arg gate FIRST, then the TTY gate — inside main() so IMPORTING this module
+  // stays inert (the `sparkbtcbot` dispatcher imports, then calls main once).
+  {
+    const args = process.argv.slice(2);
+    if (args.includes("--help") || args.includes("-h")) { stdout.write(USAGE); exit(0); }
+    if (args.length) { stderr.write(`set-policy: unknown argument(s): ${args.join(" ")}\n\n` + USAGE); exit(2); }
+  }
 
-if (!stdout.isTTY || !stdin.isTTY) {
-  stderr.write(
-    "set-policy: refusing to run without a real interactive terminal on both stdin and stdout.\n" +
-    "Changing the seed-bound spending policy is an operator ceremony — run it yourself; an agent must not.\n",
-  );
-  exit(3);
-}
+  if (!stdout.isTTY || !stdin.isTTY) {
+    stderr.write(
+      "set-policy: refusing to run without a real interactive terminal on both stdin and stdout.\n" +
+      "Changing the seed-bound spending policy is an operator ceremony — run it yourself; an agent must not.\n",
+    );
+    exit(3);
+  }
 
-async function main() {
   const seedPath = env.SPARK_SEED_PATH || DEFAULT_SEED_PATH;
   const ledgerPath = env.SPARK_SPEND_LEDGER_PATH || DEFAULT_SPEND_LEDGER_PATH;
 
@@ -92,13 +96,24 @@ async function main() {
   if (policy) {
     await initSignedLedger({ path: ledgerPath, hmacKey: deriveLedgerHmacKey(payload.mnemonic) });
     stderr.write(`Bound. seed.enc rewritten (v2, budget ${policy.dailyBudgetSats} sats); fresh signed ledger at ${ledgerPath}.\n`);
-    stderr.write("Deleting or editing the ledger now fails closed; reset legitimately with sparkbtcbot-reset-ledger.\n");
+    stderr.write("Deleting or editing the ledger now fails closed; reset legitimately with `sparkbtcbot reset-ledger`.\n");
   } else {
     stderr.write("Removed. seed.enc rewritten (v1, no bound policy). Env-var budget (if set) applies again.\n");
   }
 }
 
-main().catch((e) => {
-  stderr.write(`set-policy: ${e?.message ?? e}\n`);
-  exit(1);
-});
+const isMainModule = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (isMainModule) {
+  main().catch((e) => {
+    stderr.write(`set-policy: ${e?.message ?? e}\n`);
+    exit(1);
+  });
+}

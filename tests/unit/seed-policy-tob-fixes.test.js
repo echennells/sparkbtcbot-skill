@@ -119,7 +119,7 @@ describe("F-F: over-budget remediation matches the mode", () => {
     const key = deriveLedgerHmacKey(MNEMONIC);
     await initSignedLedger({ path: p, hmacKey: key });
     const ledger = createSpendLedger({ path: p, budgetSats: 100, hmacKey: key, bound: true });
-    await expect(ledger.assertCanSpend(500)).rejects.toThrow(/sparkbtcbot-set-policy/);
+    await expect(ledger.assertCanSpend(500)).rejects.toThrow(/sparkbtcbot set-policy/);
     await expect(ledger.assertCanSpend(500)).rejects.not.toThrow(/raise SPARK_DAILY_BUDGET_SATS/);
   });
 

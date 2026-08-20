@@ -34,7 +34,7 @@ describe("setup-encrypted-seed arg gate (the QA wallet-on---help bug)", () => {
           SPARK_PASSPHRASE: "correcthorsebatterystaple",
         });
         expect(r.code).toBe(0);
-        expect(r.stdout).toMatch(/Usage: sparkbtcbot-setup/);
+        expect(r.stdout).toMatch(/Usage: sparkbtcbot setup/);
         expect(await readdir(dir)).toEqual([]); // the load-bearing assertion
       }
     } finally { await rm(dir, { recursive: true, force: true }); }
@@ -58,7 +58,7 @@ describe("reveal-mnemonic arg gate", () => {
   it("--help prints usage and exits 0 even piped (usage holds no secrets)", async () => {
     const r = await exec("reveal-mnemonic.js", ["--help"]);
     expect(r.code).toBe(0);
-    expect(r.stdout).toMatch(/Usage: sparkbtcbot-reveal-mnemonic/);
+    expect(r.stdout).toMatch(/Usage: sparkbtcbot reveal-mnemonic/);
     expect(r.stdout).not.toMatch(/[a-z]+( [a-z]+){11}/); // and definitely no 12 words
   });
 
@@ -73,12 +73,53 @@ describe("leaf-vault-cli arg gate", () => {
   it("--help prints usage and exits 0 without attempting a snapshot", async () => {
     const r = await exec("leaf-vault-cli.js", ["--help"]);
     expect(r.code).toBe(0);
-    expect(r.stdout).toMatch(/Usage: sparkbtcbot-leaf-vault/);
+    expect(r.stdout).toMatch(/Usage: sparkbtcbot leaf-vault/);
   });
 
   it("a typo'd command (vreify) exits 2 instead of snapshotting", async () => {
     const r = await exec("leaf-vault-cli.js", ["vreify"]);
     expect(r.code).toBe(2);
     expect(r.stderr).toMatch(/unknown argument "vreify"/);
+  });
+});
+
+describe("sparkbtcbot dispatcher gate (one argument gate, no default action)", () => {
+  it("no command prints the subcommand list and exits 1 — nothing runs by default", async () => {
+    const r = await exec("cli.js", []);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/Usage: sparkbtcbot <command>/);
+    expect(r.stderr).toMatch(/setup/);
+    expect(r.stderr).toMatch(/reveal-mnemonic/);
+  });
+
+  it("an unknown command exits 2 with usage — a typo can't reach any ceremony", async () => {
+    const r = await exec("cli.js", ["stup"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/unknown command "stup"/);
+  });
+
+  it("help exits 0 on stdout; version prints the package version", async () => {
+    const h = await exec("cli.js", ["help"]);
+    expect(h.code).toBe(0);
+    expect(h.stdout).toMatch(/Usage: sparkbtcbot <command>/);
+    const v = await exec("cli.js", ["version"]);
+    expect(v.code).toBe(0);
+    expect(v.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it("dispatch actually reaches the subcommand's main() — the silent-no-op-setup regression", async () => {
+    // If the dispatcher imported setup without its main() running (the old
+    // direct-run guard would see argv[1]=cli.js and skip), this would exit 0
+    // with NO output. Reaching setup's own --help usage proves execution;
+    // reaching its unknown-arg gate proves argv propagation.
+    const help = await exec("cli.js", ["setup", "--help"]);
+    expect(help.code).toBe(0);
+    expect(help.stdout).toMatch(/Usage: sparkbtcbot setup/);
+    const typo = await exec("cli.js", ["setup", "--imprt"]);
+    expect(typo.code).toBe(2);
+    expect(typo.stderr).toMatch(/Unknown argument.*--imprt/);
+    const lv = await exec("cli.js", ["leaf-vault", "vreify"]);
+    expect(lv.code).toBe(2);
+    expect(lv.stderr).toMatch(/unknown argument "vreify"/);
   });
 });
