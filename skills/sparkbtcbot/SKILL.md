@@ -139,7 +139,7 @@ The mnemonic is **never** stored in plaintext. The skill encrypts it at rest wit
 This skill text reaches you via the Claude Code plugin, the cloned repo, or the npm package — but the **runtime is always the `sparkbtcbot-skill` package installed in the user's own project**, pinned by their lockfile:
 
 ```bash
-npm install sparkbtcbot-skill    # once, in the user's project (0.6.0+ ships one `sparkbtcbot` CLI)
+npm install sparkbtcbot-skill    # once, in the user's project (0.6.1+ ships one `sparkbtcbot` CLI)
 npx sparkbtcbot setup            # resolves LOCALLY from node_modules/.bin — one-time bootstrap
 npx sparkbtcbot reveal-mnemonic  # USER runs, own terminal
 npx sparkbtcbot leaf-vault verify

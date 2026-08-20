@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.6.0 — 2026-08-20
+## 0.6.1 — 2026-08-20
+
+Same code as 0.6.0. This release exists only to restore build provenance.
+
+### Fixed
+
+- **0.6.0 shipped without a provenance attestation and has been unpublished; 0.6.1 is the attested build of the identical tree.** Releases are supposed to go out through `.github/workflows/publish.yml` on a version tag, where npm trusted publishing (OIDC) authenticates the job and signs a Sigstore attestation linking the tarball to the exact commit and workflow run. 0.6.0 was instead published by hand from a laptop, from the repo root, so it reached the registry with no attestation — the one property the release pipeline exists to guarantee. The tarball contents were never in question (the published shasum matched the pipeline's own build of the tag byte for byte), but "you can verify this artifact came from that commit" was not true of it, so it was unpublished inside npm's 72-hour window. npm treats `name@version` as permanently spent once unpublished — it "cannot be reused by unpublishing and re-publishing it" — so the corrected build necessarily ships under a new number rather than as a re-cut 0.6.0. Docs that marked the single-CLI change as landing in "0.6.0+" now say 0.6.1+, since 0.6.0 is no longer installable. `package-lock.json`, which still read 0.5.0 through the 0.6.0 release, is now bumped in step.
+
+## 0.6.0 — 2026-08-20 — unpublished, superseded by 0.6.1
 
 ### Security
 
