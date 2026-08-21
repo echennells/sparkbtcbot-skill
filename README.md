@@ -63,7 +63,7 @@ Native plugin install. Updates flow through `claude plugin update sparkbtcbot`. 
 ### Any other LLM agent framework (Cursor, LangChain, OpenAI Agents SDK, Aider, etc.)
 
 ```bash
-npm install sparkbtcbot-skill
+npm install --ignore-scripts sparkbtcbot-skill
 ```
 
 The package ships both the skill content (so you can load it into your LLM's context) and the encryption library (so generated code can import the helpers). Minimal use:
@@ -117,7 +117,7 @@ npm exec --no -- sparkbtcbot help                 # full subcommand list
 
 Do not rely on refusing npx's install prompt: **npx only prompts on an interactive terminal.** With no TTY — a CI job, a script, or an AI agent running commands for you — it installs and executes silently. That is why the safe forms are `npm exec --no` and `./node_modules/.bin/sparkbtcbot` rather than a rule about answering "no".
 
-`--ignore-scripts` is deliberate too: one production dependency (`protobufjs`) runs code at install time, before your code imports anything. The package and the Spark SDK both work fully without it. In a project that already has a lockfile, prefer `npm ci`.
+`--ignore-scripts` is deliberate too: one production dependency (`protobufjs`) runs code at install time, before your code imports anything. The package and the Spark SDK both work fully without it. In a project that already has a lockfile, prefer `npm ci --ignore-scripts` — `npm ci` runs the full install lifecycle just like `npm install`, so the flag is required there too.
 
 After `sparkbtcbot setup`, persist the passphrase you chose: the runtime reads `SPARK_PASSPHRASE` from its environment at boot (dotenv loads the `.env` in the directory your app runs from). Setup deliberately writes it nowhere — the encrypted seed lands in `~/.spark/seed.enc`, and keeping the passphrase out of that directory is the point.
 
@@ -126,7 +126,7 @@ After `sparkbtcbot setup`, persist the passphrase you chose: the runtime reads `
 ```bash
 git clone https://github.com/echennells/sparkbtcbot.git ~/sparkbtcbot
 cd ~/sparkbtcbot
-npm ci     # lockfile-exact install; fails loudly on any drift
+npm ci --ignore-scripts   # lockfile-exact install; fails loudly on any drift
 npm test   # offline unit suite — verifies the resolved tree matches the one we live-tested
 ```
 
@@ -143,7 +143,7 @@ The Quick Start below assumes this path — useful if you want to kick the tires
 ```bash
 # Install dependencies (in the cloned repo; lockfile-exact), then verify:
 cd ~/sparkbtcbot
-npm ci
+npm ci --ignore-scripts
 npm test   # offline; a red suite means the installed tree isn't the tested one — stop there
 
 # Copy env template, set SPARK_PASSPHRASE (>=12 chars)
@@ -186,12 +186,11 @@ The `npm run` shortcuts exist only in the cloned repo. npm-package consumers get
 | `SPARK_PASSPHRASE` | Yes | Passphrase (≥12 chars) that decrypts the seed file at boot. Set during `npm run setup`. |
 | `SPARK_NETWORK` | No | `MAINNET` (default), `REGTEST`, `TESTNET`, `SIGNET` |
 | `SPARK_SEED_PATH` | No | Override for the encrypted-seed file location. Defaults to `~/.spark/seed.enc`. |
-| `SPARK_ACCOUNT_NUMBER` | No | BIP32 account index. Defaults: 1 (MAINNET), 0 (REGTEST) |
 
 ## Dependencies
 
 ```bash
-npm install sparkbtcbot-skill   # brings the pinned SDK + helpers with it
+npm install --ignore-scripts sparkbtcbot-skill   # brings the pinned SDK + helpers with it
 ```
 
 ## Security

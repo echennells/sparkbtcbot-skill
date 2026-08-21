@@ -97,7 +97,7 @@ Options:
   -h, --help    Show this help and exit. No wallet is created.
 
 Environment: SPARK_PASSPHRASE (12+ chars; prompted if unset), SPARK_NETWORK,
-SPARK_SEED_PATH, SPARK_ACCOUNT_NUMBER. Reads .env from the current directory.
+SPARK_SEED_PATH. Reads .env from the current directory.
 `;
 function gateArgs() {
   const args = process.argv.slice(2);

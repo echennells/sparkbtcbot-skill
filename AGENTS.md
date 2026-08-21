@@ -55,7 +55,8 @@ conversation transcript or shell history is identical to a leak from disk.
   bootstrap or seed reveal must never come from a package npx fetched.
 - **Install with `npm install --ignore-scripts sparkbtcbot-skill`.** One production dependency
   (`protobufjs`) executes code at install time, before anything is imported; the package works
-  fully without it. Prefer `npm ci` in a project that already has a lockfile.
+  fully without it. Prefer `npm ci --ignore-scripts` in a project that already has a lockfile —
+  plain `npm ci` runs the full install lifecycle, so the flag is required there too.
 - **Never commit `.env` or `~/.spark/seed.enc`.** `.env` must be in `.gitignore`; the seed file
   is mode 0600 and must stay out of images/backups that travel with the passphrase.
 - **Use a dedicated wallet with limited funds.** There are no server-enforced spending caps on

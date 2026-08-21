@@ -1,0 +1,27 @@
+{
+  "name": "sparkbtcbot-reveal-mnemonic",
+  "version": "0.1.0",
+  "description": "Name-reservation stub for a RETIRED sparkbtcbot command. `sparkbtcbot-reveal-mnemonic` was a bin in sparkbtcbot-skill 0.4.x-0.5.x; 0.6.0 replaced it with `sparkbtcbot reveal-mnemonic`. This package exists so a bare `npx sparkbtcbot-reveal-mnemonic` \u2014 typed from memory or an old doc \u2014 resolves to project-owned code that refuses and explains, instead of a squatter's, at wallet-bootstrap time.",
+  "keywords": [
+    "sparkbtcbot-reveal-mnemonic",
+    "name-reservation",
+    "deprecated"
+  ],
+  "homepage": "https://github.com/echennells/sparkbtcbot",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/echennells/sparkbtcbot.git",
+    "directory": "stub/sparkbtcbot-reveal-mnemonic"
+  },
+  "bugs": "https://github.com/echennells/sparkbtcbot/issues",
+  "license": "MIT",
+  "author": "Eric Chennells",
+  "type": "module",
+  "bin": {
+    "sparkbtcbot-reveal-mnemonic": "cli.js"
+  },
+  "files": [
+    "cli.js",
+    "README.md"
+  ]
+}

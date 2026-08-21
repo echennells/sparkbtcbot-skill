@@ -1,0 +1,27 @@
+{
+  "name": "sparkbtcbot-set-policy",
+  "version": "0.1.0",
+  "description": "Name-reservation stub for a RETIRED sparkbtcbot command. `sparkbtcbot-set-policy` was a bin in sparkbtcbot-skill 0.4.x-0.5.x; 0.6.0 replaced it with `sparkbtcbot set-policy`. This package exists so a bare `npx sparkbtcbot-set-policy` \u2014 typed from memory or an old doc \u2014 resolves to project-owned code that refuses and explains, instead of a squatter's, at wallet-bootstrap time.",
+  "keywords": [
+    "sparkbtcbot-set-policy",
+    "name-reservation",
+    "deprecated"
+  ],
+  "homepage": "https://github.com/echennells/sparkbtcbot",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/echennells/sparkbtcbot.git",
+    "directory": "stub/sparkbtcbot-set-policy"
+  },
+  "bugs": "https://github.com/echennells/sparkbtcbot/issues",
+  "license": "MIT",
+  "author": "Eric Chennells",
+  "type": "module",
+  "bin": {
+    "sparkbtcbot-set-policy": "cli.js"
+  },
+  "files": [
+    "cli.js",
+    "README.md"
+  ]
+}
