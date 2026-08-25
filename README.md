@@ -214,6 +214,19 @@ Recommendations:
 - [Spark SDK (npm)](https://www.npmjs.com/package/@buildonspark/spark-sdk)
 - [Sparkscan Explorer](https://sparkscan.io)
 
+## Disclaimer
+
+This software is provided **as is, without warranty of any kind**, express or implied — see [`LICENSE`](./LICENSE) for the full text. Running it is your decision and your risk.
+
+- **It moves real money, irreversibly.** Bitcoin transactions cannot be reversed, cancelled, or charged back. A wrong address, a lost passphrase, or a compromised host means the funds are gone, and no one — including the author — can recover them.
+- **No custody, no access, no recourse.** The author never holds your keys, seed, passphrase, or funds, runs no service on your behalf, and has no ability to freeze, refund, or reverse anything. This is a client-side library, not a financial service, an exchange, or a money transmitter.
+- **The guardrails are best-effort, not security boundaries.** `SPARK_DAILY_BUDGET_SATS`, the recipient allowlist, invoice-vs-quote verification, and the TTY refusal in `reveal-mnemonic` lower the odds of a bad outcome. They do not enforce anything against a determined attacker or a confused agent — LLMs are non-deterministic and can be prompt-injected, and any process holding the decrypted seed has full spending authority.
+- **Third parties are outside our control.** The Spark protocol and its Signing Operators, the SSP, the Lightning Network, and merchants such as Bitrefill, nadanada, and Cryptorefills each carry their own risk of downtime, censorship, fee changes, loss, or shutdown. Integration here is not endorsement, and no ongoing diligence is performed on any of them.
+- **Nothing here is financial, investment, tax, or legal advice.** Whether running an autonomous Bitcoin wallet is lawful where you are — and how what it does gets reported and taxed — is yours to determine.
+- **Pre-1.0.** APIs, file formats, and defaults change between releases. Pin a version.
+
+Fund the wallet with an operational float you can afford to lose entirely, and no more.
+
 ## License
 
 MIT
