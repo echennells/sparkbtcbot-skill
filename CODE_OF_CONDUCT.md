@@ -6,4 +6,4 @@ In short: be respectful, assume good faith, and keep discussion focused on the w
 
 ## Reporting
 
-Report concerns to eric@brodie.rocks. Reports are handled privately.
+Report concerns to eric@yvrbtclabs.dev. Reports are handled privately.

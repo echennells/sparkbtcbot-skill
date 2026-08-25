@@ -4,7 +4,7 @@
 
 If you find a security issue in `sparkbtcbot`, **please do not open a public GitHub issue.**
 
-Email **eric@brodie.rocks** with:
+Email **eric@yvrbtclabs.dev** with:
 
 - A description of the issue and its impact
 - Steps to reproduce (or a proof-of-concept)

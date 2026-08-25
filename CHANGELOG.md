@@ -204,7 +204,7 @@ Repo-health and test-coverage release. Published-package contents unchanged from
 
 ### Added
 
-- Community-health files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1), `SECURITY.md` with private disclosure to eric@brodie.rocks.
+- Community-health files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1), `SECURITY.md` with private disclosure to eric@yvrbtclabs.dev.
 - GitHub Actions CI (`.github/workflows/ci.yml`) running `npm test` on Node 18, 20, and 22 for push and PR against `main`.
 - 16 new unit tests (total now 72):
   - `tests/unit/skill-content.test.js` — covers `getSkillContent`, `getReference`, `listReferences`, `skillPath`, `referencesDir`, including a reference-doc anti-drift check against the names promised in the README.

@@ -44,4 +44,4 @@ Changes that probably don't fit (open an issue first to discuss):
 
 ## Security issues
 
-Do **not** open a public issue for security vulnerabilities. Email eric@brodie.rocks instead.
+Do **not** open a public issue for security vulnerabilities. Email eric@yvrbtclabs.dev instead.
