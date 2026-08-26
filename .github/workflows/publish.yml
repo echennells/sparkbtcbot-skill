@@ -14,7 +14,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write # create the GitHub Release for the tag
   id-token: write # OIDC: trusted-publishing auth + provenance signing
 
 jobs:
@@ -54,3 +54,31 @@ jobs:
 
       - name: Publish to npm (with provenance)
         run: npm publish --provenance --access public
+
+      # Cut the GitHub Release from the same tag, so the Releases page cannot
+      # drift behind npm the way it did from 0.4.3 through 0.6.3 — five tagged,
+      # published versions with no Release, because this step did not exist and
+      # nothing failed loudly once the manual habit stopped. Runs after the
+      # publish so a tag that never reached npm does not get a Release either.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Release notes are this version's CHANGELOG section: everything
+          # between its own "## <version> " heading and the next heading.
+          awk -v v="$VERSION" '
+            $0 ~ "^## " v " " { flag = 1; next }
+            /^## / && flag { exit }
+            flag { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          if [ -s /tmp/release-notes.md ]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
+          else
+            # No matching CHANGELOG section: still cut the Release rather than
+            # fail the run, and let GitHub write the notes from the commits.
+            echo "No CHANGELOG section for $VERSION; generating notes" >&2
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi
