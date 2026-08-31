@@ -19,6 +19,10 @@ console.log("BOLT11:", invoiceRequest.invoice.encodedInvoice);
 
 Pass `includeSparkAddress: true` to embed a Spark address in the invoice's route hints. Spark-aware payers will then route via Spark (instant, free) instead of Lightning (0.15% + routing).
 
+Mind the expiry divergence: the **raw SDK's default `expirySeconds` is 30 days** (`3600 * 24 * 30`, verified in source through 0.11.0), while the `SparkAgent` wrapper pins 1 hour. An agent calling the raw wallet without `expirySeconds` hands out a month-lived invoice — pass it explicitly, as the example above does.
+
+As of SDK 0.10 a receive can pin the SSP's fee up front instead of trusting the worst-case figure: `getLightningReceiveQuote({ amountSats })` returns a signed fee manifest, passed back verbatim via `createLightningInvoice({ ..., quote })`. Without a partner JWT the quote comes back feeless (`attributionStatus` says why). Mind one asymmetry: a NET-basis quote issues the invoice for the manifest's *gross*, which can exceed the `amountSats` you asked for whenever a markup applies.
+
 ## Pay Lightning Invoice (Send)
 
 A BOLT11 is **time-bounded** — it carries an expiry (default 3600s from creation; often shorter). Paying an expired invoice fails at the SDK, but the real hazard is a flow that spends time or money *before* the pay call (the L1 on-ramp below, a confirm-with-the-user pause, a queued job): the invoice can lapse in that gap. Cheap insurance — decode the remaining life and refuse early rather than after you've committed:
@@ -41,6 +45,15 @@ console.log("Estimated fee:", fee, "sats");
 For zero-amount invoices, also pass `amountSats`.
 
 ### Pay
+
+> **⚠️ Raw wallet and `SparkAgent` wrapper take DIFFERENT argument shapes — they are NOT interchangeable.**
+>
+> ```javascript
+> await wallet.payLightningInvoice({ invoice: "lnbc...", maxFeeSats: 30 }); // raw SDK: ONE object, invoice is a KEY
+> await agent.payLightningInvoice("lnbc...", { maxFeeSats: 30 });           // wrapper: bare BOLT11 string + options
+> ```
+>
+> A bare string at the **raw** layer crashes with the opaque `Cannot read properties of undefined (reading 'toLowerCase')` — the SDK destructures its argument with no validation (verified through 0.11.0), so the string becomes `invoice: undefined` and dies on the first line. **If you see that exact error from `payLightningInvoice`, this mis-shape is the cause.** It throws before any payment request leaves the process, so the invoice is **unpaid** — re-calling with the correct shape is safe and is not a double-pay risk. The reverse mix-up (`agent.payLightningInvoice({ invoice })`) fails loud: the wrapper throws a `TypeError` naming both shapes.
 
 ```javascript
 const result = await wallet.payLightningInvoice({
@@ -73,6 +86,14 @@ if (!preimage && result.id) {
   }
 }
 ```
+
+### Retry Dedup: `transferId` (SDK ≥0.10)
+
+The raw call accepts an optional `transferId` (the SDK's exported `UUID` type — mint with `generateTransferId()`, re-hydrate a stored string with `UUID.parse(str)`; a plain string throws `Transfer ID must be a UUID`). It is the payment's dedup identity across **every** rail — Spark fallback transfer, preimage swap, SSP admission — so re-calling `payLightningInvoice` with the *same* `transferId` cannot produce a second payment. It replaced `idempotencyKey` in 0.10.0, and that replacement was itself a bug fix: `idempotencyKey` only ever deduplicated the preimage-swap RPC and was ignored entirely on the Spark-fallback path. **Code still passing `idempotencyKey` gets NO dedup and no error** — the SDK destructures unknown keys away silently (the same silent-drop class as `dryRun` on raw sends).
+
+**The `SparkAgent` wrapper makes this automatic and durable.** Before its first pay attempt for an invoice it mints a `transferId` and persists it — one file per invoice, keyed by payment hash, at `~/.spark/ln-dedup/` (`SPARK_LN_DEDUP_PATH` to relocate; `SPARK_LN_DEDUP=off` to opt out) — written **write-ahead**, so any later `agent.payLightningInvoice`/`payAndSettle` of the *same* invoice reuses the same ID: after a timeout, after a crash, from a restarted process, even from two processes racing (the store publishes via kernel-atomic exclusive link, so racers converge on one ID). The store fails closed — an unreadable entry refuses to pay rather than minting a fresh ID for an invoice that may already have a payment in flight; the deliberate reset is deleting that entry file. You can also pass `agent.payLightningInvoice(bolt11, { transferId })` (a UUID *string* here — the wrapper parses) to manage the identity yourself; one that disagrees with the recorded ID is refused.
+
+This does not soften the retry doctrine above — after a timeout, still check `getLightningSendRequest` (and the balance/transfer list for Spark-direct settles) *first*, and never hammer a hold invoice that is legitimately pending. What changes is the failure cost when a retry **is** warranted: through the wrapper it cannot double-pay while the store is intact. The residual hazard is exactly a missing store — deleted state, a different machine, or `SPARK_LN_DEDUP=off` — where a retry is the old gamble again.
 
 ## Lightning → L1 Off-Ramp (via Spark)
 

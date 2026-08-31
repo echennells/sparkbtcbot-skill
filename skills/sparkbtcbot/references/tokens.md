@@ -60,3 +60,9 @@ wallet.startPeriodicTokenOptimization(); // auto on a schedule
 ```
 
 For most agent use cases the periodic optimizer is fine — manual calls are only needed for unusual usage patterns.
+
+## Token Allowances — delegated, operator-enforced spending (SDK ≥0.10)
+
+Spark-sdk 0.10.0 added a delegated-spending primitive for tokens: an **owner** wallet grants a **spender** key bounded pull authority with `createTokenAllowance({ spenderPublicKey, tokenIdentifier, perTransaction, total, expiryTime, recipientAllowlist })`; the spender — authenticating as its *own* wallet — pulls funds within those bounds via `startAllowancePull` / `commitAllowancePull`; the owner can `revokeTokenAllowance` at any time (a permanent tombstone) and audit with `queryTokenAllowances`. The caps, expiry, and recipient allowlist are enforced **by every signing operator independently** — the SDK's client-side checks are preflight only.
+
+Why this matters here: it is the first **server-enforced** spend bound anywhere in Spark this skill can point at. Everything in this skill's guardrail stack (fee caps, `maxAmountSats`, `recipients.allow`, the spend budget) lives in the agent's own process and dies with its compromise — SKILL.md says so plainly. A token allowance does not: an agent holding only a *spender* key under an allowance from a treasury wallet is bounded by the allowance even if fully compromised, because the operators refuse the over-cap pull. The trade-offs: **tokens only** (sats spend still has no server-enforced cap — the funded balance remains the only compromise-surviving bound for BTC), the treasury wallet's mnemonic must live somewhere safer than the agent, and enforcement trust shifts to the operator federation (`references/architecture.md` for that model).

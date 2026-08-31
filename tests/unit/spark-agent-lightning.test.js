@@ -4,7 +4,11 @@
 // forward it as amountSatsToSend ONLY in the amountless case — a bot's real
 // payment failed because the wrapper estimated with the amount, then dropped it
 // on the actual send.
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { UUID } from "@buildonspark/spark-sdk";
 import { SparkAgent } from "../../skills/sparkbtcbot/scripts/spark-agent.js";
 
 // Amount-ful sample (2,000 sats embedded) from light-bolt11-decoder's README.
@@ -48,6 +52,110 @@ describe("payLightningInvoice amountSatsToSend forwarding", () => {
     const { agent, calls } = mkAgent();
     await expect(agent.payLightningInvoice(AMOUNTLESS, {})).rejects.toThrow(/blocked/i);
     expect(calls.pay).toBeNull(); // never reached the SDK
+  });
+});
+
+// Persisted payment-dedup identity (spark-sdk >=0.10 transferId): the wrapper
+// mints ONE id per invoice, write-ahead, and forwards it as the SDK's required
+// instanceof-UUID object — so any retry of the same invoice (this process or
+// the next) reuses it and the SDK's cross-rail dedup refuses a second payment.
+describe("payLightningInvoice transferId dedup", () => {
+  const saved = {};
+  beforeEach(() => {
+    saved.path = process.env.SPARK_LN_DEDUP_PATH;
+    saved.flag = process.env.SPARK_LN_DEDUP;
+  });
+  afterEach(() => {
+    if (saved.path === undefined) delete process.env.SPARK_LN_DEDUP_PATH; else process.env.SPARK_LN_DEDUP_PATH = saved.path;
+    if (saved.flag === undefined) delete process.env.SPARK_LN_DEDUP; else process.env.SPARK_LN_DEDUP = saved.flag;
+  });
+  const mkIsolated = async () => {
+    process.env.SPARK_LN_DEDUP_PATH = await mkdtemp(join(tmpdir(), "agent-ln-dedup-"));
+    return { dir: process.env.SPARK_LN_DEDUP_PATH, ...mkAgent() };
+  };
+
+  it("forwards the SDK's UUID object and REUSES it for the same invoice across agents", async () => {
+    const { calls } = await mkIsolated();
+    const { agent, calls: calls1 } = mkAgent();
+    await agent.payLightningInvoice(AMOUNTLESS, { amountSats: 500 });
+    expect(calls1.pay.transferId).toBeInstanceOf(UUID); // the SDK rejects plain strings
+    const firstId = calls1.pay.transferId.toString();
+    // a SECOND agent over the same store (a restarted process) must reuse it
+    const { agent: agent2, calls: calls2 } = mkAgent();
+    await agent2.payLightningInvoice(AMOUNTLESS, { amountSats: 500 });
+    expect(calls2.pay.transferId.toString()).toBe(firstId);
+    expect(calls.pay).toBeNull(); // the throwaway from mkIsolated never paid
+  });
+
+  it("different invoices get different ids", async () => {
+    await mkIsolated();
+    const { agent, calls } = mkAgent();
+    await agent.payLightningInvoice(AMOUNTLESS, { amountSats: 500 });
+    const a = calls.pay.transferId.toString();
+    await agent.payLightningInvoice(INVOICE_2000_SATS, {});
+    expect(calls.pay.transferId.toString()).not.toBe(a);
+  });
+
+  it("SPARK_LN_DEDUP=off restores the SDK's mint-per-call behavior (no transferId sent)", async () => {
+    await mkIsolated();
+    process.env.SPARK_LN_DEDUP = "off";
+    const { agent, calls } = mkAgent();
+    await agent.payLightningInvoice(AMOUNTLESS, { amountSats: 500 });
+    expect("transferId" in calls.pay).toBe(false);
+  });
+
+  it("an explicit transferId is used, persisted, and normalized through UUID.parse", async () => {
+    await mkIsolated();
+    const explicit = "0198F00D-0000-7000-8000-000000000001"; // uppercase on purpose
+    const { agent, calls } = mkAgent();
+    await agent.payLightningInvoice(AMOUNTLESS, { amountSats: 500, transferId: explicit });
+    expect(calls.pay.transferId).toBeInstanceOf(UUID);
+    expect(calls.pay.transferId.toString()).toBe(explicit.toLowerCase());
+    // a later DISAGREEING explicit id for the same invoice must refuse
+    const { agent: agent2, calls: calls2 } = mkAgent();
+    await expect(
+      agent2.payLightningInvoice(AMOUNTLESS, { amountSats: 500, transferId: "0198f00d-0000-7000-8000-000000000002" }),
+    ).rejects.toThrow(/disagrees with the id already recorded/i);
+    expect(calls2.pay).toBeNull();
+  });
+
+  it("garbage transferId throws before any I/O", async () => {
+    await mkIsolated();
+    const { agent, calls } = mkAgent();
+    await expect(
+      agent.payLightningInvoice(AMOUNTLESS, { amountSats: 500, transferId: "not-a-uuid" }),
+    ).rejects.toThrow(/transferId must be a UUID string/i);
+    expect(calls.pay).toBeNull();
+  });
+
+  it("dryRun neither mints nor persists (the store stays empty)", async () => {
+    const { dir } = await mkIsolated();
+    const { agent } = mkAgent();
+    await agent.payLightningInvoice(INVOICE_2000_SATS, { dryRun: true });
+    await expect(readdir(dir)).resolves.toEqual([]);
+  });
+});
+
+// The raw SDK and the wrapper take DIFFERENT shapes (raw: one { invoice }
+// object; wrapper: bare string + options). The raw layer crashes opaquely on a
+// bare string ("reading 'toLowerCase'") — a real mainnet payment failed this
+// way — so the wrapper direction must fail loud, name both shapes, and throw
+// before any I/O.
+describe("payLightningInvoice signature guard", () => {
+  it("throws a shape-naming TypeError when given the raw-SDK object form", async () => {
+    const { agent, calls } = mkAgent();
+    await expect(
+      agent.payLightningInvoice({ invoice: INVOICE_2000_SATS, maxFeeSats: 30 }),
+    ).rejects.toThrow(/bare BOLT11 string.*not interchangeable/s);
+    expect(calls.pay).toBeNull(); // never reached the SDK
+  });
+
+  it("covers payAndSettle too (it delegates the pay call)", async () => {
+    const { agent, calls } = mkAgent();
+    await expect(
+      agent.payAndSettle({ invoice: INVOICE_2000_SATS }, { pollMs: 1 }),
+    ).rejects.toThrow(TypeError);
+    expect(calls.pay).toBeNull();
   });
 });
 

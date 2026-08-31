@@ -218,6 +218,18 @@
         "any runtime deps are added to the USER'S project; helpers imported from the sparkbtcbot-skill package"
       ],
       "note": "Encodes the 2026-08-05 plugin-path review: docs assumed a repo that plugin installs don't have."
+    },
+    {
+      "id": 21,
+      "category": "sdk-correctness",
+      "prompt": "My bot calls the raw SDK directly: `await wallet.payLightningInvoice(\"lnbc1...\")` — and it crashes with `Cannot read properties of undefined (reading 'toLowerCase')`. The invoice expires in 40 minutes. What's wrong, and what should the code be?",
+      "assertions": [
+        "diagnoses the bare-string mis-shape: raw wallet.payLightningInvoice takes ONE object — payLightningInvoice({ invoice, maxFeeSats, ... })",
+        "states the crash happened client-side before any payment request left the process, so the invoice is UNPAID and a corrected call is safe (no double-pay risk)",
+        "notes the SparkAgent wrapper's (bolt11String, options) signature is a DIFFERENT shape and the two are not interchangeable",
+        "does NOT blame the Spark service, suggest waiting, or advise abandoning the still-valid invoice"
+      ],
+      "note": "Encodes the 2026-08-28 production incident: wrapper-style bare string passed to the raw SDK; opaque toLowerCase crash on a time-sensitive invoice."
     }
   ]
 }

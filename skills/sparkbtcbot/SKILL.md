@@ -107,7 +107,7 @@ The full trust model (moment-in-time / forward-security detail, what operators c
 ## Required Libraries
 
 ```bash
-npm install @buildonspark/spark-sdk@^0.9.0 dotenv
+npm install @buildonspark/spark-sdk@^0.11.0 dotenv
 ```
 
 For token issuance (minting new tokens), additionally:
@@ -238,7 +238,7 @@ Load only what's needed for the user's task. Each reference is a self-contained 
 |---|---|
 | `references/architecture.md` | User asks how Spark works, weighs against Lightning/on-chain, or reasons about fees |
 | `references/wallet.md` | Sats operations: balance, deposits, transfers, list transfers, withdrawal |
-| `references/lightning.md` | Lightning interop — BOLT11 invoices, payments, fee estimation |
+| `references/lightning.md` | Lightning interop — BOLT11 invoices, payments, fee estimation; the raw-vs-wrapper `payLightningInvoice` shape trap |
 | `references/tokens.md` | BTKN/LRC20 token transfers and balances |
 | `references/spark-invoices.md` | Spark native invoice format (sats and tokens), `fulfillSparkInvoice` |
 | `references/agent-class.md` | Drop-in `SparkAgent` class wrapping the SDK |

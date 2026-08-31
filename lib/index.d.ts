@@ -248,6 +248,35 @@ export function invoiceSecondsRemaining(bolt11: string, nowMs?: number): number 
 /** True when the invoice is already expired (or undecodable — fails closed). */
 export function invoiceIsExpired(bolt11: string, nowMs?: number): boolean;
 
+// --- Lightning payment-dedup store (persisted per-invoice transferId) ---
+
+/** Default store location: ~/.spark/ln-dedup/ (one JSON file per invoice). */
+export const DEFAULT_TRANSFER_IDS_DIR: string;
+
+/** The invoice's payment hash (hex), or a hash of the string when undecodable. */
+export function invoiceDedupKey(bolt11: string): string;
+
+/**
+ * Persistent per-invoice `transferId` store (spark-sdk >=0.10 payment dedup).
+ * `idForInvoice` returns the stored id for the invoice when a prior attempt
+ * recorded one, else persists `mint()`'s result write-ahead and returns it.
+ * An `explicitId` that disagrees with a stored id throws; an unreadable
+ * stored entry throws (fail closed) rather than minting a fresh id.
+ */
+export function createTransferIdStore(options?: {
+  dir?: string;
+  clock?: () => number;
+}): {
+  dir: string;
+  idForInvoice(
+    bolt11: string,
+    mint: () => string,
+    options?: { explicitId?: string },
+  ): Promise<{ transferId: string; reused: boolean }>;
+  /** Remove entries whose recorded expiry has passed. Best-effort; returns the count removed. */
+  prune(): Promise<number>;
+};
+
 /** Total cooperative-exit fee (userFee + l1BroadcastFee) for a speed; null if unreadable. */
 export function withdrawalTotalFee(
   quote: unknown,

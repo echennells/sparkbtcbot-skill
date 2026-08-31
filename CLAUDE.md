@@ -29,6 +29,7 @@ lib/
   leaf-vault.js                       # SDK-free recovery-bundle persistence + shape validation
   fee-guards.js                       # fee/amount ceilings for sends, claims, withdrawals
   spend-ledger.js                     # rolling-window cumulative budget (bounds send LOOPS)
+  transfer-ids.js                     # persisted per-invoice Lightning dedup transferId (safe retries)
   recipients-allowlist.js             # opt-in outbound allowlist guardrail
   index.js / index.d.ts               # npm entry (also exports ./leaf-vault subpaths)
 skills/
@@ -83,6 +84,8 @@ SPARK_NETWORK=MAINNET
 # SPARK_LEAF_VAULT_PATH=/custom/path.json # recovery-bundle location (default ~/.spark/leaf-vault/current.json)
 # SPARK_DAILY_BUDGET_SATS=50000           # opt-in rolling-24h cumulative spend budget (bounds send loops)
 # SPARK_SPEND_LEDGER_PATH=/custom/path    # spend-ledger location (default ~/.spark/spend-ledger.json)
+# SPARK_LN_DEDUP=off                      # opt out of the persisted Lightning payment-dedup transferId
+# SPARK_LN_DEDUP_PATH=/custom/dir         # dedup-store directory (default ~/.spark/ln-dedup/)
 ```
 
 ## Security Note

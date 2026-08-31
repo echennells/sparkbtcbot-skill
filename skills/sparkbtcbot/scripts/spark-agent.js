@@ -2,8 +2,10 @@ import "dotenv/config";
 import { pathToFileURL } from "node:url";
 import {
   SparkWallet,
+  UUID,
   decodeSparkAddress,
   encodeSparkAddress,
+  generateTransferId,
   getNetworkFromSparkAddress,
 } from "@buildonspark/spark-sdk";
 import { loadMnemonicFromEnv, getLoadedSeedContext, seedFileIsSealed } from "../../../lib/encrypted-seed.js";
@@ -21,6 +23,7 @@ import {
   withdrawalTotalFee,
 } from "../../../lib/fee-guards.js";
 import { createSpendLedger } from "../../../lib/spend-ledger.js";
+import { createTransferIdStore } from "../../../lib/transfer-ids.js";
 import { enableLeafVault } from "./leaf-vault.js";
 
 // Best-effort BOLT11 amount in sats (undefined for amountless invoices or on a
@@ -158,6 +161,21 @@ function spendLedgerFromEnv(seedCtx = getLoadedSeedContext()) {
   return createSpendLedger({ budgetSats, path: process.env.SPARK_SPEND_LEDGER_PATH || undefined });
 }
 
+// Lightning payment-dedup store (lib/transfer-ids.js): mints and PERSISTS one
+// spark-sdk `transferId` per invoice, write-ahead of the first pay attempt, so
+// any retry of the same invoice — after a timeout, a crash, or from a second
+// process — reuses the same ID, and the SDK's cross-rail dedup (Spark fallback
+// transfer, preimage swap, SSP admission; spark-sdk ≥0.10) makes a second
+// payment impossible. On by default (state at ~/.spark/ln-dedup/, override
+// with SPARK_LN_DEDUP_PATH); SPARK_LN_DEDUP=off restores the SDK's
+// fresh-ID-per-call behavior, where a retry after an ambiguous failure is a
+// double-pay gamble.
+function lnDedupFromEnv() {
+  const flag = String(process.env.SPARK_LN_DEDUP ?? "").trim().toLowerCase();
+  if (["off", "false", "0", "no"].includes(flag)) return null;
+  return createTransferIdStore({ dir: process.env.SPARK_LN_DEDUP_PATH || undefined });
+}
+
 // A native Spark invoice IS its own destination: the receiver's identity key
 // is embedded in the bech32m payload, so the payee is knowable BEFORE paying.
 // Returns the receiver's identity key plus the bare current-format Spark
@@ -245,6 +263,7 @@ export class SparkAgent {
   #network;
   #vault = null;
   #ledger = null;
+  #lnDedup = null;
   // Serializes the ledger's check-then-record critical section across
   // concurrent sends on this instance (see #recordSpend).
   #spendChain = Promise.resolve();
@@ -256,6 +275,7 @@ export class SparkAgent {
     this.#wallet = wallet;
     this.#network = network;
     this.#ledger = spendLedgerFromEnv(seedContext !== undefined ? seedContext : getLoadedSeedContext());
+    this.#lnDedup = lnDedupFromEnv();
     // Automatically mirror the unilateral-exit material to disk so funds stay
     // recoverable if the Spark operators go offline — snapshots on boot and on
     // every leaf change (send/receive/deposit) + a refresh safety timer. Opt out
@@ -476,8 +496,36 @@ export class SparkAgent {
   // so the allowlist (which targets Spark/L1 addresses) does not apply here
   // — confirm the invoice's amount and decoded payee with the operator
   // before paying when stakes warrant it.
-  async payLightningInvoice(bolt11, { maxFeeSats, amountSats, maxAmountSats = 10_000, dryRun = false, ...rest } = {}) {
+  async payLightningInvoice(bolt11, { maxFeeSats, amountSats, maxAmountSats = 10_000, transferId, dryRun = false, ...rest } = {}) {
+    // The raw SDK takes ONE object ({ invoice, ... }); this wrapper takes a bare
+    // BOLT11 string + options. The raw layer crashes opaquely on the mix-up
+    // ("Cannot read properties of undefined (reading 'toLowerCase')" — no
+    // validation in spark-sdk through at least 0.11.0), so the wrapper
+    // direction at least must fail loud and name both shapes.
+    if (typeof bolt11 !== "string") {
+      throw new TypeError(
+        `SparkAgent.payLightningInvoice takes a bare BOLT11 string first — ` +
+        `payLightningInvoice("lnbc...", { maxFeeSats }) — got ${bolt11 === null ? "null" : typeof bolt11}. ` +
+        `The { invoice, ... } object shape belongs to the raw wallet.payLightningInvoice; ` +
+        `the two signatures are not interchangeable.`,
+      );
+    }
     rejectUnknownOptions("payLightningInvoice", rest);
+    // transferId (optional): a caller-managed dedup identity. Normalize
+    // through the SDK's own UUID parser up front — the SDK requires an
+    // instanceof-UUID object, not a string, and a garbage value must throw
+    // HERE rather than after fees are estimated and the spend is recorded.
+    let explicitTransferId;
+    if (transferId !== undefined) {
+      try {
+        explicitTransferId = UUID.parse(transferId).toString();
+      } catch {
+        throw new Error(
+          `SparkAgent.payLightningInvoice: transferId must be a UUID string, got ${JSON.stringify(transferId)} — ` +
+          `an unreadable dedup identity would forfeit the retry safety it exists to provide.`,
+        );
+      }
+    }
     // Validate BEFORE any I/O: a garbage ceiling must throw here, not degrade
     // to "no cap set" inside the guards (see requireNumericOption).
     const maxFee = requireNumericOption("payLightningInvoice", "maxFeeSats", maxFeeSats);
@@ -535,9 +583,30 @@ export class SparkAgent {
       const hint = !amtCheck.ok ? "Raise maxAmountSats" : "Raise maxFeeSats";
       throw new Error(`Lightning send blocked: ${reason}. ${hint} to override.`);
     }
+    // Resolve the payment's dedup identity BEFORE recording the spend or
+    // touching the SDK: one persisted transferId per invoice (write-ahead), so
+    // a retry of this same invoice — this process or the next one — reuses it
+    // and the SDK's cross-rail dedup refuses a second payment (see
+    // lib/transfer-ids.js). A store failure throws HERE, with no money moved
+    // and no ledger entry to undo. With the store opted off, an explicit
+    // transferId still forwards (the caller owns dedup); with neither, the
+    // SDK mints per call — today's double-pay-on-retry gamble.
+    let sdkTransferId;
+    if (this.#lnDedup) {
+      const resolved = await this.#lnDedup.idForInvoice(
+        bolt11,
+        () => generateTransferId().toString(),
+        { explicitId: explicitTransferId },
+      );
+      sdkTransferId = UUID.parse(resolved.transferId);
+    } else if (explicitTransferId !== undefined) {
+      sdkTransferId = UUID.parse(explicitTransferId);
+    }
     // Budget counts the AMOUNT; routing fees are bounded separately by the cap
     // above (≤0.5% + floor). An unreadable amount with a budget set fails
-    // closed inside the ledger.
+    // closed inside the ledger. A deduped retry re-records here, so the budget
+    // can OVERCOUNT one payment attempted twice — the safe direction for a
+    // runaway-loop guardrail (see #recordSpend's crash trade-off).
     const spend = await this.#recordSpend(amt, "lightning_pay");
     try {
       // The SDK REQUIRES amountSatsToSend for a zero-amount invoice and REJECTS it
@@ -548,6 +617,7 @@ export class SparkAgent {
         invoice: bolt11,
         maxFeeSats: cap,
         preferSpark: true,
+        ...(sdkTransferId !== undefined ? { transferId: sdkTransferId } : {}),
         ...(invoiceAmt === undefined && amtSats !== undefined ? { amountSatsToSend: amtSats } : {}),
       });
     } catch (err) {
@@ -573,9 +643,14 @@ export class SparkAgent {
   // that merchant policy says to log. Wraps the LIGHTNING_PAYMENT_INITIATED
   // poll loop every merchant purchase otherwise re-implements. Throws on
   // LIGHTNING_PAYMENT_FAILED. On poll exhaustion returns { settled: false }:
-  // NEVER retry-pay after a timeout — the payment may still settle (hold
-  // invoices legitimately stay pending for many minutes); check again later
-  // with getLightningSendRequest(result.id) instead.
+  // do NOT reflex-retry after a timeout — the payment may still settle (hold
+  // invoices legitimately stay pending for many minutes); check
+  // getLightningSendRequest(result.id) first. When a retry IS warranted, the
+  // persisted per-invoice transferId (see payLightningInvoice) makes it
+  // dedup-safe — the SDK cannot pay the same invoice twice through this
+  // wrapper while the ~/.spark/ln-dedup store is intact. The residual hazard
+  // is a deleted/absent store (or SPARK_LN_DEDUP=off), where a retry is the
+  // old double-pay gamble again.
   async payAndSettle(bolt11, { pollMs = 2000, maxPolls = 30, ...payOptions } = {}) {
     const result = await this.payLightningInvoice(bolt11, payOptions);
     if (payOptions.dryRun) return result;

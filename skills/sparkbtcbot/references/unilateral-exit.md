@@ -85,6 +85,10 @@ They spend the same outputs, so **only one can win**. This matters because the r
 
 **Use a version of Blink's tool that detects this** (the direct-path pivot, contributed after a live mainnet run hit it). If yours loops on "package disappeared from the mempool (likely evicted)" while the node is actually answering `missingorspent`, it predates the fix — check the node output's spender before assuming anything is stuck.
 
+### A watchtower exit can also strand a leaf while the wallet still works (SDK ≥0.10)
+
+The race above has a quieter cousin that needs no recovery tool: the operators' chainwatcher confirms an ancestor transaction on L1 and the leaf **silently stops being spendable on Spark** — it drops out of the balance and `getLeaves` with nothing telling you it needs attention. As of spark-sdk 0.10.0 the live wallet can find and repair these itself: `getWatchtowerExitedLeaves()` lists each stranded leaf with the on-chain output that still holds its value, and `recoverWatchtowerExitedLeaf({ leafId, destinationAddress, satsPerVbyteFee })` co-signs a sweep of that output with the SE (`recoverAndBroadcastWatchtowerExitedLeaf` also publishes it). Mind the trust line: this route needs the operators **alive and co-signing** — it is a live-wallet repair, not a replacement for the leaf-vault, which exists for when they are gone. Two gotchas from the SDK's own doc comments: recovered leaves stay in the list forever (the SE never sees your broadcast, so check the chain — not the list — to confirm a recovery landed), and re-calling with a higher fee *replaces* a slow recovery, since every attempt spends the same output.
+
 ## What to expect (from Blink's real mainnet exit)
 
 - **Expensive and slow by construction.** A 100k-sat wallet across 22 leaves needed
