@@ -14,7 +14,8 @@ import {
   assertRecipientAllowed,
   DEFAULT_ALLOWLIST_PATH,
 } from "../../../lib/recipients-allowlist.js";
-import { decodeInvoiceSats } from "../../../lib/bolt11.js";
+import { createHash } from "node:crypto";
+import { decodeInvoiceSats, invoicePaymentHash } from "../../../lib/bolt11.js";
 import {
   lightningEstimateSats,
   lightningFeeCap,
@@ -592,8 +593,9 @@ export class SparkAgent {
     // transferId still forwards (the caller owns dedup); with neither, the
     // SDK mints per call — today's double-pay-on-retry gamble.
     let sdkTransferId;
+    let resolved; // kept in scope: `reused` proves a later AlreadyExists means SETTLED
     if (this.#lnDedup) {
-      const resolved = await this.#lnDedup.idForInvoice(
+      resolved = await this.#lnDedup.idForInvoice(
         bolt11,
         () => generateTransferId().toString(),
         { explicitId: explicitTransferId },
@@ -608,12 +610,13 @@ export class SparkAgent {
     // can OVERCOUNT one payment attempted twice — the safe direction for a
     // runaway-loop guardrail (see #recordSpend's crash trade-off).
     const spend = await this.#recordSpend(amt, "lightning_pay");
+    let result;
     try {
       // The SDK REQUIRES amountSatsToSend for a zero-amount invoice and REJECTS it
       // for an invoice that carries one — forward the caller's amount only in the
       // amountless case. (Without this, amountless sends fail at payment time even
       // though the fee estimate above accepted the amount.)
-      return await this.#wallet.payLightningInvoice({
+      result = await this.#wallet.payLightningInvoice({
         invoice: bolt11,
         maxFeeSats: cap,
         preferSpark: true,
@@ -622,8 +625,36 @@ export class SparkAgent {
       });
     } catch (err) {
       await spend.undo().catch(() => {});
+      // AlreadyExists on a KNOWN retry (the store proved this id was already
+      // used for THIS invoice) is proof of settlement, not failure — the
+      // Spark-fallback rail dedupes via a DB uniqueness constraint and
+      // surfaces it as a raw gRPC error that reads as the opposite of what
+      // happened (2026-08-31 live QA + ToB sharp-edges F1). Translate it
+      // HERE, where the wrapper holds the proof; a non-reused AlreadyExists
+      // (store deleted between attempts?) passes through raw — don't mask a
+      // state we can't vouch for.
+      if (resolved?.reused && /already\s?exists/i.test(String(err?.message ?? ""))) {
+        const settled = new Error(
+          `SparkAgent.payLightningInvoice: this invoice's payment ALREADY SETTLED — the operators ` +
+          `refused a second transfer under the recorded transferId (${resolved.transferId}). This is ` +
+          `dedup working, not a failed payment. Do NOT retry on any rail or by any path: not with a ` +
+          `fresh invoice (a new payment hash escapes dedup = a real second payment) and not via the ` +
+          `raw SDK. Verify via the balance delta or transfer list.`,
+        );
+        settled.code = "PAYMENT_ALREADY_SETTLED";
+        settled.cause = err;
+        throw settled;
+      }
       throw err;
     }
+    // Surface the dedup verdict: a reused id means this "success" is the
+    // ORIGINAL payment's result replayed (Lightning rail), not a new debit —
+    // without the flag, a deliberate second pay of the same invoice reads as
+    // a fresh payment while no money moved (ToB sharp-edges F3).
+    if (resolved) {
+      try { result.dedupReused = resolved.reused; } catch { /* frozen result — flag lost, payment fine */ }
+    }
+    return result;
   }
 
   async estimateLightningFee(bolt11, amountSats) {
@@ -673,7 +704,34 @@ export class SparkAgent {
         // the never-retry-on-timeout rule safe: a failed-and-refunded payment
         // that merely timed out would otherwise look pending forever, and the
         // rule would forbid the retry that is actually correct.
+        // The dead transferId must not outlive the failure: kept, it makes a
+        // legitimate re-pay of the still-valid invoice replay the failure (or
+        // hit AlreadyExists, which the docs then read as "already paid") —
+        // ToB sharp-edges F5. The SDK marked this TERMINAL (funds failed or
+        // returned), so a fresh id on the next attempt is the correct state.
+        if (this.#lnDedup) await this.#lnDedup.forget(bolt11);
         throw new Error(`Lightning payment failed (${status.status})`);
+      }
+    }
+    // Proof means PROOF: a Lightning preimage settles THIS invoice only if
+    // sha256(preimage) equals the invoice's payment hash. A non-matching
+    // preimage is the replay shape — a transferId wrongly shared with a
+    // DIFFERENT payment makes the SDK hand back that payment's result as this
+    // one's "success" while this invoice was never paid (ToB sharp-edges F2).
+    // Undecodable invoices carry no hash to check; the raw result passes
+    // through as before.
+    if (preimage) {
+      const expected = invoicePaymentHash(bolt11);
+      if (expected) {
+        const got = createHash("sha256").update(Buffer.from(preimage, "hex")).digest("hex");
+        if (got !== expected) {
+          throw new Error(
+            `SparkAgent.payAndSettle: the returned preimage does NOT hash to this invoice's payment ` +
+            `hash (sha256(preimage) = ${got}, invoice = ${expected}) — refusing to report settled. ` +
+            `This is the signature of a transferId shared with a different payment: THIS invoice was ` +
+            `not paid. Check the transfer list, and never reuse one transferId across invoices.`,
+          );
+        }
       }
     }
     return { ...result, paymentPreimage: preimage, settled: Boolean(preimage), lastStatus };

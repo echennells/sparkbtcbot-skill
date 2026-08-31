@@ -136,6 +136,92 @@ describe("payLightningInvoice transferId dedup", () => {
   });
 });
 
+// 2026-08-31 ToB audit fixes at the wrapper: translate the fallback rail's raw
+// AlreadyExists into a settled verdict WHEN the store proves the id was reused;
+// surface the dedup verdict on success; verify the settlement proof; and reset
+// the entry after a terminal failure so the invoice stays payable.
+describe("audit hardening (wrapper)", () => {
+  const saved = {};
+  beforeEach(() => { saved.path = process.env.SPARK_LN_DEDUP_PATH; });
+  afterEach(() => {
+    if (saved.path === undefined) delete process.env.SPARK_LN_DEDUP_PATH; else process.env.SPARK_LN_DEDUP_PATH = saved.path;
+  });
+  const mkIsolated = async () => {
+    process.env.SPARK_LN_DEDUP_PATH = await mkdtemp(join(tmpdir(), "agent-audit-dedup-"));
+    return { dir: process.env.SPARK_LN_DEDUP_PATH };
+  };
+  const mkThrowing = (err) => {
+    process.env.SPARK_LEAF_VAULT = "off";
+    const calls = { pay: 0 };
+    const wallet = {
+      getSparkAddress: async () => "sp1from",
+      getLightningSendFeeEstimate: async () => 5,
+      payLightningInvoice: async () => { calls.pay++; if (err) throw err; return { id: "pay-1" }; },
+    };
+    return { agent: new SparkAgent(wallet, "MAINNET"), calls };
+  };
+
+  it("translates AlreadyExists into PAYMENT_ALREADY_SETTLED on a KNOWN retry", async () => {
+    await mkIsolated();
+    const grpcErr = new Error('rpc error: code = AlreadyExists desc = transfer already exists: duplicate key value violates unique constraint "transfers_pkey"');
+    // first attempt records the id (succeeds)…
+    const { agent: first } = mkThrowing(null);
+    await first.payLightningInvoice(AMOUNTLESS, { amountSats: 500 });
+    // …the retry hits the server-side dedup and must read as SETTLED
+    const { agent: retry } = mkThrowing(grpcErr);
+    await expect(retry.payLightningInvoice(AMOUNTLESS, { amountSats: 500 })).rejects.toMatchObject({
+      code: "PAYMENT_ALREADY_SETTLED",
+    });
+  });
+
+  it("passes AlreadyExists through RAW when the id was NOT reused (no proof to vouch)", async () => {
+    await mkIsolated();
+    const grpcErr = new Error("rpc error: code = AlreadyExists desc = transfer already exists");
+    const { agent } = mkThrowing(grpcErr); // first-ever attempt for this store
+    await expect(agent.payLightningInvoice(AMOUNTLESS, { amountSats: 500 })).rejects.toThrow(/AlreadyExists/);
+    await expect(agent.payLightningInvoice(AMOUNTLESS, { amountSats: 500 })).rejects.toMatchObject({
+      code: "PAYMENT_ALREADY_SETTLED", // second call: now reused — translated
+    });
+  });
+
+  it("surfaces the dedup verdict on success (dedupReused false then true)", async () => {
+    await mkIsolated();
+    const { agent } = mkThrowing(null);
+    const one = await agent.payLightningInvoice(AMOUNTLESS, { amountSats: 500 });
+    expect(one.dedupReused).toBe(false);
+    const two = await agent.payLightningInvoice(AMOUNTLESS, { amountSats: 500 });
+    expect(two.dedupReused).toBe(true); // a replay, not a second debit
+  });
+
+  it("payAndSettle REFUSES a preimage that doesn't hash to the invoice's payment hash", async () => {
+    await mkIsolated();
+    process.env.SPARK_LEAF_VAULT = "off";
+    const wallet = {
+      getSparkAddress: async () => "sp1from",
+      getLightningSendFeeEstimate: async () => 5,
+      payLightningInvoice: async () => ({ id: "pay-1", paymentPreimage: "aa".repeat(32) }),
+    };
+    const agent = new SparkAgent(wallet, "MAINNET");
+    await expect(agent.payAndSettle(INVOICE_2000_SATS, { pollMs: 1 })).rejects.toThrow(
+      /does NOT hash to this invoice's payment hash/i,
+    );
+  });
+
+  it("payAndSettle deletes the dedup entry on TERMINAL failure so a re-pay mints fresh", async () => {
+    const { dir } = await mkIsolated();
+    process.env.SPARK_LEAF_VAULT = "off";
+    const wallet = {
+      getSparkAddress: async () => "sp1from",
+      getLightningSendFeeEstimate: async () => 5,
+      payLightningInvoice: async () => ({ id: "pay-1" }),
+      getLightningSendRequest: async () => ({ status: "LIGHTNING_PAYMENT_FAILED" }),
+    };
+    const agent = new SparkAgent(wallet, "MAINNET");
+    await expect(agent.payAndSettle(AMOUNTLESS, { amountSats: 500, pollMs: 1 })).rejects.toThrow(/failed/i);
+    await expect(readdir(dir)).resolves.toEqual([]); // entry gone — invoice re-payable
+  });
+});
+
 // The raw SDK and the wrapper take DIFFERENT shapes (raw: one { invoice }
 // object; wrapper: bare string + options). The raw layer crashes opaquely on a
 // bare string ("reading 'toLowerCase'") — a real mainnet payment failed this

@@ -63,10 +63,20 @@ describe("fetchL402", () => {
         ? resp(402, { invoice: inv, macaroon: "mac1" })
         : resp(200, { premium: true });
     });
-    const { agent, calls } = mkAgent();
+    const { agent } = mkAgent();
+    // payAndSettle now VERIFIES sha256(preimage) against the invoice's payment
+    // hash, and no fixture can forge a matching preimage for a real invoice —
+    // that impossibility is the security property. Stub settlement here (this
+    // test pins the 402 header/retry mechanics); the verification itself is
+    // pinned in spark-agent-lightning.test.js.
+    const paid = [];
+    vi.spyOn(agent, "payAndSettle").mockImplementation(async (invoice) => {
+      paid.push(invoice);
+      return { settled: true, paymentPreimage: "abc123preimage", id: "pay-1" };
+    });
     const r = await agent.fetchL402("https://api.example/paid", { maxAmountSats: 3000 });
     expect(r).toMatchObject({ paid: true, amountSats: 2000, preimage: "abc123preimage", data: { premium: true } });
-    expect(calls.pay.invoice).toBe(inv);
+    expect(paid).toEqual([inv]);
     expect(fetches[1].headers.Authorization).toBe("L402 mac1:abc123preimage");
   });
 

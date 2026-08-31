@@ -91,7 +91,7 @@ describe("idForInvoice", () => {
     await store.idForInvoice(DECODABLE, mint);
     const [file] = await readdir(dir);
     await writeFile(join(dir, file), "{corrupted");
-    await expect(store.idForInvoice(DECODABLE, mint)).rejects.toThrow(/unreadable dedup entry/i);
+    await expect(store.idForInvoice(DECODABLE, mint)).rejects.toThrow(/unreadable or invalid dedup entry/i);
   });
 });
 
@@ -104,7 +104,7 @@ describe("prune", () => {
     // grace, so advancing the clock past it makes the entry prunable.
     await store.idForInvoice(DECODABLE, mint);
     await writeFile(join(dir, "not-an-entry.json"), "{corrupted");
-    now += 2 * 60 * 60 * 1000; // +2h > the 1h settle grace
+    now += 25 * 60 * 60 * 1000; // +25h > the 24h settle grace (hold-invoice headroom)
     const removed = await store.prune();
     expect(removed).toBe(1);
     const left = await readdir(dir);
@@ -119,6 +119,74 @@ describe("prune", () => {
     now += 2 * 60 * 60 * 1000;
     expect(await store.prune()).toBe(0);
     await expect(store.idForInvoice(UNDECODABLE, mint)).resolves.toMatchObject({ transferId });
+  });
+});
+
+// Hardening from the 2026-08-31 ToB audit (sharp-edges F4/F6/F9, differential
+// LOW-2): the store must fail LOUD on misuse — a persisted non-UUID id wedges
+// the invoice at the SDK with no hint of the entry file; positional misuse
+// silently ignored at the exact retry moment is how a guard becomes a no-op.
+describe("audit hardening", () => {
+  it("rejects a non-UUID mint result instead of persisting an id the SDK will refuse", async () => {
+    const store = createTransferIdStore({ dir: await tmp() });
+    await expect(store.idForInvoice(DECODABLE, () => "not-a-uuid-at-all")).rejects.toThrow(/must return a UUID string/i);
+    await expect(readdir(store.dir)).resolves.toEqual([]); // nothing persisted
+  });
+
+  it("accepts a UUID OBJECT from mint (e.g. the SDK's generateTransferId) via toString", async () => {
+    const store = createTransferIdStore({ dir: await tmp() });
+    const obj = { toString: () => "0198F00D-0000-7000-8000-00000000AAAA" };
+    const { transferId } = await store.idForInvoice(DECODABLE, () => obj);
+    expect(transferId).toBe("0198f00d-0000-7000-8000-00000000aaaa"); // normalized lowercase
+  });
+
+  it("fails CLOSED on a well-formed entry holding a non-UUID id (names the file)", async () => {
+    const dir = await tmp();
+    const store = createTransferIdStore({ dir });
+    await store.idForInvoice(DECODABLE, mint);
+    const [file] = await readdir(dir);
+    await writeFile(join(dir, file), JSON.stringify({ v: 1, transferId: "garbage" }));
+    await expect(store.idForInvoice(DECODABLE, mint)).rejects.toThrow(/unreadable or invalid dedup entry/i);
+  });
+
+  it("throws loud on positional misuse instead of silently ignoring an id in mint's seat", async () => {
+    const store = createTransferIdStore({ dir: await tmp() });
+    await store.idForInvoice(DECODABLE, mint); // entry exists — the dangerous silent case
+    await expect(store.idForInvoice(DECODABLE, mint())).rejects.toThrow(/mint FUNCTION/i);
+    await expect(store.idForInvoice(DECODABLE, mint, "some-id")).rejects.toThrow(/options object/i);
+    await expect(store.idForInvoice(undefined, mint)).rejects.toThrow(/BOLT11 string first/i);
+    await expect(store.idForInvoice(DECODABLE, mint, { explicitId: 12345 })).rejects.toThrow(/explicitId must be a UUID string/i);
+  });
+
+  it("REFUSES an explicitId already recorded for a DIFFERENT invoice (cross-invoice replay)", async () => {
+    const store = createTransferIdStore({ dir: await tmp() });
+    const { transferId: idA } = await store.idForInvoice(DECODABLE, mint);
+    await expect(store.idForInvoice(UNDECODABLE, mint, { explicitId: idA })).rejects.toThrow(
+      /already recorded for a DIFFERENT invoice/i,
+    );
+  });
+
+  it("rejects a broken clock at construction (a Date-returning clock breaks TTLs silently)", () => {
+    expect(() => createTransferIdStore({ clock: () => new Date() })).toThrow(/clock must be a function returning a finite ms timestamp/i);
+    expect(() => createTransferIdStore({ clock: 123 })).toThrow(/clock/i);
+  });
+
+  it("forget() removes the entry so a terminally-failed invoice can be re-paid fresh", async () => {
+    const dir = await tmp();
+    const store = createTransferIdStore({ dir });
+    const first = await store.idForInvoice(DECODABLE, mint);
+    expect(await store.forget(DECODABLE)).toBe(true);
+    const second = await store.idForInvoice(DECODABLE, mint);
+    expect(second.transferId).not.toBe(first.transferId);
+    expect(await store.forget(UNDECODABLE)).toBe(false); // nothing there — no throw
+  });
+
+  it("frames a store fs failure with the fix (path, not SPARK_LN_DEDUP=off)", async () => {
+    const dir = await tmp();
+    const blocked = join(dir, "not-a-dir");
+    await writeFile(blocked, "a plain file where the store dir should be");
+    const store = createTransferIdStore({ dir: join(blocked, "sub") });
+    await expect(store.idForInvoice(DECODABLE, mint)).rejects.toThrow(/transfer-ids: cannot .*SPARK_LN_DEDUP_PATH/s);
   });
 });
 
