@@ -579,7 +579,12 @@ export class SparkAgent {
   // dedup-safe — the SDK cannot pay the same invoice twice through this
   // wrapper while the ~/.spark/ln-dedup store is intact. The residual hazard
   // is a deleted/absent store (or SPARK_LN_DEDUP=off), where a retry is the
-  // old double-pay gamble again.
+  // old double-pay gamble again. A deduped retry's SHAPE differs by rail
+  // (live-validated, one debit either way): the Lightning rail REPLAYS the
+  // original result (same id + preimage, reads as success); the Spark-fallback
+  // rail THROWS "AlreadyExists ... transfer already exists" — which means
+  // ALREADY PAID, not failed. Never re-pay or report failure on AlreadyExists;
+  // confirm via the balance/transfer list.
   async payAndSettle(bolt11, { pollMs = 2000, maxPolls = 30, ...payOptions } = {}) {
     const result = await this.payLightningInvoice(bolt11, payOptions);
     if (payOptions.dryRun) return result;

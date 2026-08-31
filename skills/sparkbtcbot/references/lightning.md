@@ -95,6 +95,11 @@ The raw call accepts an optional `transferId` (the SDK's exported `UUID` type �
 
 This does not soften the retry doctrine above — after a timeout, still check `getLightningSendRequest` (and the balance/transfer list for Spark-direct settles) *first*, and never hammer a hold invoice that is legitimately pending. What changes is the failure cost when a retry **is** warranted: through the wrapper it cannot double-pay while the store is intact. The residual hazard is exactly a missing store — deleted state, a different machine, or `SPARK_LN_DEDUP=off` — where a retry is the old gamble again.
 
+**What a deduped retry RETURNS differs by rail** (live-validated on mainnet, 2026-08-31 — one debit in both cases):
+
+- **Lightning rail: a clean replay.** The retry returns the original result — same `id`, same `paymentPreimage`, `TRANSFER_COMPLETED`. It reads as an ordinary success, because it is one: the original payment's proof, handed back.
+- **Spark-fallback rail: it THROWS.** `rpc error: code = AlreadyExists … transfer already exists … duplicate key value violates unique constraint "transfers_pkey"`. **This error means the payment already happened** — the operators refused a second transfer under the same `transferId` — it does NOT mean the payment failed. Never re-pay, and never report failure, on an `AlreadyExists` from `payLightningInvoice`: confirm via the balance delta or transfer list (a Spark-direct settle leaves no send-request record — see the top of this file), and treat the invoice as paid.
+
 ## Lightning → L1 Off-Ramp (via Spark)
 
 Load this pattern when someone holding sats on Lightning wants them on-chain. With third-party submarine-swap services unreliable (Boltz disabled all swaps indefinitely in August 2026), Spark itself is a Lightning→L1 bridge: **receive over Lightning into Spark, then cooperative-exit to L1.**
