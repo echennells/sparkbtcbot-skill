@@ -2,7 +2,7 @@
 
 Claude Code skill for setting up Spark Bitcoin L2 wallet capabilities for AI agents.
 
-**Installation:** Clone to `~/.claude/skills/sparkbtcbot`
+**Installation:** the plugin marketplace, or clone anywhere (e.g. `~/sparkbtcbot`) and symlink the nested skill: `ln -s ~/sparkbtcbot/skills/sparkbtcbot ~/.claude/skills/sparkbtcbot`. Never clone directly into `~/.claude/skills/` — the skill nests at `skills/sparkbtcbot/`, so a direct clone buries `SKILL.md` too deep to be discovered (README → Local clone).
 
 ## What This Skill Does
 
