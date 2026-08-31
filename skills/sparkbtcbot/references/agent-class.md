@@ -6,7 +6,7 @@ Load when building an agent that wraps `SparkWallet` with a higher-level API for
 
 The `SparkAgent` class exposes these (all `async` unless noted); full signatures and bodies are in the code below.
 
-- **Identity & balance** — `getIdentity()`, `getBalance()`
+- **Identity & balance** — `getIdentity()`, `getBalance()` (returns normalized `{ sats, tokens }` — the raw `wallet.getBalance()` returns `{ satsBalance, tokenBalances }`; same name, different shape, not interchangeable)
 - **Deposits** — `getDepositAddress()`, `getSingleUseDepositAddress()`, `listPendingDeposits()`, `claimDeposit(...)`
 - **Send** — `transfer(...)`, `transferTokens(...)`, `batchTransferTokens(transfers)`, `withdraw(...)` (L1 cooperative exit), `getWithdrawalFeeQuote(amountSats, address)`, `getTransfers(limit, offset)`
 - **Lightning** — `createLightningInvoice(amountSats, memo, options)`, `payLightningInvoice(bolt11, ...)` (persists one dedup `transferId` per invoice, so a warranted retry of the same invoice cannot double-pay — `references/lightning.md` → Retry Dedup), `estimateLightningFee(bolt11, amountSats)`, `getLightningSendRequest(id)` (poll an initiated send for its preimage), `payAndSettle(bolt11, ...)` (pay + wait for the preimage; check status before any retry on its timeout). ⚠️ `payLightningInvoice` here takes a **bare BOLT11 string** first; the raw `wallet.payLightningInvoice` takes **one `{ invoice, ... }` object** — not interchangeable, and the raw layer crashes opaquely on a bare string (`references/lightning.md` → Pay)
@@ -583,8 +583,10 @@ export class SparkAgent {
   // (live-validated, one debit either way): the Lightning rail REPLAYS the
   // original result (same id + preimage, reads as success); the Spark-fallback
   // rail THROWS "AlreadyExists ... transfer already exists" — which means
-  // ALREADY PAID, not failed. Never re-pay or report failure on AlreadyExists;
-  // confirm via the balance/transfer list.
+  // ALREADY PAID, not failed. On AlreadyExists the payment is settled: do not
+  // retry on any rail, by ANY path — not via a fresh invoice (new payment
+  // hash = new dedup entry = a real second payment) and not via the raw SDK
+  // (bypasses the store). Confirm via the balance/transfer list.
   async payAndSettle(bolt11, { pollMs = 2000, maxPolls = 30, ...payOptions } = {}) {
     const result = await this.payLightningInvoice(bolt11, payOptions);
     if (payOptions.dryRun) return result;

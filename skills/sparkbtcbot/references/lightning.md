@@ -98,7 +98,9 @@ This does not soften the retry doctrine above — after a timeout, still check `
 **What a deduped retry RETURNS differs by rail** (live-validated on mainnet, 2026-08-31 — one debit in both cases):
 
 - **Lightning rail: a clean replay.** The retry returns the original result — same `id`, same `paymentPreimage`, `TRANSFER_COMPLETED`. It reads as an ordinary success, because it is one: the original payment's proof, handed back.
-- **Spark-fallback rail: it THROWS.** `rpc error: code = AlreadyExists … transfer already exists … duplicate key value violates unique constraint "transfers_pkey"`. **This error means the payment already happened** — the operators refused a second transfer under the same `transferId` — it does NOT mean the payment failed. Never re-pay, and never report failure, on an `AlreadyExists` from `payLightningInvoice`: confirm via the balance delta or transfer list (a Spark-direct settle leaves no send-request record — see the top of this file), and treat the invoice as paid.
+- **Spark-fallback rail: it THROWS.** `rpc error: code = AlreadyExists … transfer already exists … duplicate key value violates unique constraint "transfers_pkey"`. **This error means the payment already happened** — the operators refused a second transfer under the same `transferId` — it does NOT mean the payment failed. Confirm via the balance delta or transfer list (a Spark-direct settle leaves no send-request record — see the top of this file), and treat the invoice as paid.
+
+**The rule on `AlreadyExists`: the payment is SETTLED — do not retry on any rail, by any path.** The dangerous move isn't re-calling the wrapper (the store blocks that); it's the workaround an agent reaches for after misreading the error as failure: **asking the payee for a fresh invoice** (a new payment hash means a new dedup entry — the store cannot connect it to the payment that already settled, so paying it is a genuine second payment), or dropping to the raw SDK (which bypasses the store entirely). Both convert a successfully-deduped retry into the exact double-pay the dedup just prevented.
 
 ## Lightning → L1 Off-Ramp (via Spark)
 

@@ -654,8 +654,10 @@ export class SparkAgent {
   // (live-validated, one debit either way): the Lightning rail REPLAYS the
   // original result (same id + preimage, reads as success); the Spark-fallback
   // rail THROWS "AlreadyExists ... transfer already exists" — which means
-  // ALREADY PAID, not failed. Never re-pay or report failure on AlreadyExists;
-  // confirm via the balance/transfer list.
+  // ALREADY PAID, not failed. On AlreadyExists the payment is settled: do not
+  // retry on any rail, by ANY path — not via a fresh invoice (new payment
+  // hash = new dedup entry = a real second payment) and not via the raw SDK
+  // (bypasses the store). Confirm via the balance/transfer list.
   async payAndSettle(bolt11, { pollMs = 2000, maxPolls = 30, ...payOptions } = {}) {
     const result = await this.payLightningInvoice(bolt11, payOptions);
     if (payOptions.dryRun) return result;
