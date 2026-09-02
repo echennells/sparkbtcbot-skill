@@ -34,6 +34,20 @@ jobs:
       - name: Update npm
         run: npm install -g npm@latest
 
+      # Route the pre-publish install through Socket Firewall threat-intel, so a
+      # known-malicious dependency can't execute in this OIDC-privileged job and
+      # hijack the publish (which can mint a trusted-publishing token). Scoped
+      # HONESTLY: npm 12+ already blocks install scripts, and the min-release-age
+      # age gate does NOT apply to `npm ci` (it installs the exact lockfile), so
+      # the value added here is specifically Socket's known-malicious blocklist
+      # on the pre-publish install. Pinned to a SHA; sfw is best-effort (warns
+      # and continues if it can't install), and `npm publish` is not wrapped.
+      - name: Harden runner (Socket Firewall on the pre-publish install)
+        uses: echennells/supply-chain-hardening/action@a664b49d79adebe977642f38335a665875500294
+        with:
+          ecosystems: npm
+          install_sfw: true
+
       - name: Install dependencies
         run: npm ci
 
